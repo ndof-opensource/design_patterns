@@ -1,68 +1,145 @@
-#ifndef NDOF_PROXY_HPP
-#define NDOF_PROXY_HPP
-#include <memory>
-#include <exception>
-#include <expected>
-#include <functional>
+#pragma once
 
+#include <memory>
+#include <optional>
+#include <functional>
+#include <type_traits>
+#include <expected>
+#include <utility>
+#include <stdexcept>
 #include "../callable_traits/include/callable_concepts.hpp"
 
-namespace ndof{
+namespace ndof {
 
-    struct bad_proxy_call : std::bad_function_call {
-        explicit bad_proxy_call(std::string msg) : _msg(std::move(msg)) {}
-        const char* what() const noexcept override { return _msg.c_str(); }
-    private:
-        std::string _msg;
-    };
+struct bad_proxy_call : std::bad_function_call {
+    explicit bad_proxy_call(std::string msg) : _msg(std::move(msg)) {}
+    const char* what() const noexcept override { return _msg.c_str(); }
+private:
+    std::string _msg;
+};
 
-    template<Callable F>
-    struct Proxy {
+template <Callable F>
+class Proxy;
 
-    };
+// Function (actual function type, not pointer)
+template <Function F>
+class Proxy<F> {
+    F& func;
+public:
+    explicit Proxy(F& f) : func(f) {}
 
-    template<Callable F>
-    requires StandaloneFunction<F>
-    struct Proxy<F>{
-        std::optional<std::reference_wrapper<F> > f_ref;
-        std::weak_ptr<F> f_wp;
+    template <typename... Args>
+    auto operator()(Args&&... args) const
+        -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
+    {
+        return std::invoke(func, std::forward<Args>(args)...);
+    }
 
-        Proxy(F& f_ref) : f_ref(std::ref(f_ref)), f_wp() {}
+    bool is_valid() const { return true; }
+};
 
-        Proxy(std::weak_ptr<F> f_wp) : f_wp(f_wp), f_ref(std::nullopt) {}
+// Function pointer
+template <FunctionPtr F>
+class Proxy<F> {
+    std::optional<F> func_ptr;
+    std::weak_ptr<F> func_wp;
 
+public:
+    explicit Proxy(F f) : func_ptr(f) {}
+    explicit Proxy(std::weak_ptr<F> wp) : func_wp(std::move(wp)) {}
 
-        // User burden: exception must inherit from std::exception.
-        // Question: memory allocation? 
-        // P2: tombstone. 
-        template<typename ...A>
-        auto operator()(A&&... a) const 
-            -> std::expected<std::invoke_result_t<F, A...>, bad_proxy_call> {
-            if (f_ref) {
-                return std::invoke(*f_ref, std::forward<A>(a)...);
-            }
-            
-            if (auto sp = f_wp.lock()) {
-                return std::invoke(*sp, std::forward<A>(a)...);
-            }
-
-            return std::unexpected(bad_proxy_call{"Proxy: callable target is expired or uninitialized"});
+    template <typename... Args>
+    auto operator()(Args&&... args) const
+        -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
+    {
+        if (func_ptr) {
+            return std::invoke(*func_ptr, std::forward<Args>(args)...);
         }
-    };
-
-    template<Callable F>
-    requires (!StandaloneFunction<F>)
-    struct Proxy<F>{
-        template<typename ...A>
-        auto operator()(A&&... a){
-
+        if (auto sp = func_wp.lock()) {
+            return std::invoke(*sp, std::forward<Args>(args)...);
         }
-    };
+        return std::unexpected(bad_proxy_call("Proxy: callable target is expired or uninitialized"));
+    }
 
+    bool is_valid() const {
+        return func_ptr.has_value() || !func_wp.expired();
+    }
+};
 
-}
+// Functor (callable object with operator())
+template <Functor F>
+class Proxy<F> {
+    std::optional<std::reference_wrapper<F>> ref;
+    std::weak_ptr<F> wp;
 
-#endif
+public:
+    explicit Proxy(F& f) : ref(std::ref(f)) {}
+    explicit Proxy(std::weak_ptr<F> wp) : wp(std::move(wp)) {}
 
- 
+    template <typename... Args>
+    auto operator()(Args&&... args) const
+        -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
+    {
+        if (ref) {
+            return std::invoke(ref->get(), std::forward<Args>(args)...);
+        }
+        if (auto sp = wp.lock()) {
+            return std::invoke(*sp, std::forward<Args>(args)...);
+        }
+        return std::unexpected(bad_proxy_call("Proxy: callable target is expired or uninitialized"));
+    }
+
+    bool is_valid() const {
+        return ref.has_value() || !wp.expired();
+    }
+};
+
+// std::function
+template <StdFunction F>
+class Proxy<F> {
+    std::optional<F> fn;
+
+public:
+    explicit Proxy(F f) : fn(std::move(f)) {}
+
+    template <typename... Args>
+    auto operator()(Args&&... args) const
+        -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
+    {
+        if (fn) {
+            return std::invoke(*fn, std::forward<Args>(args)...);
+        }
+        return std::unexpected(bad_proxy_call("Proxy: callable target is expired or uninitialized"));
+    }
+
+    bool is_valid() const {
+        return fn.has_value();
+    }
+};
+
+// Member function pointer
+template <MemberFunctionPtr F>
+class Proxy<F> {
+    F member_ptr;
+    void* object_ptr;
+
+public:
+    Proxy(F fn, void* obj) : member_ptr(fn), object_ptr(obj) {}
+
+    template <typename... Args>
+    auto operator()(Args&&... args) const
+        -> std::expected<std::invoke_result_t<F, void*, Args...>, bad_proxy_call>
+    {
+        if (object_ptr) {
+            return std::invoke(member_ptr, static_cast<typename std::remove_pointer_t<void>*>(object_ptr), std::forward<Args>(args)...);
+        }
+        return std::unexpected(bad_proxy_call("Member function proxy object is null"));
+    }
+
+    bool is_valid() const {
+        return object_ptr != nullptr;
+    }
+};
+
+} // namespace ndof
 

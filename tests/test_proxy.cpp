@@ -1,58 +1,126 @@
+
 #include <gtest/gtest.h>
 #include "../proxy.hpp"
-#include <string>
 #include <memory>
+#include <string>
+#include <functional>
 
 using namespace ndof;
 
-// ✅ Free functions (match StandaloneFunction<F>)
+// Free function
 std::string greet(const std::string& name) {
     return "Hello, " + name;
 }
-
-std::string repeat(const std::string& word) {
-    return word + " " + word;
+int square(int x) {
+    return x * x;
 }
 
-static_assert(StandaloneFunction<decltype(greet)>);
+// Functor
+struct Multiplier {
+    int factor;
+    Multiplier(int f) : factor(f) {}
+    int operator()(int x) const { return x * factor; }
+};
 
-// ✅ Proxy with function reference
-TEST(ProxyTest, FreeFunctionReference) {
+struct Greeter {
+    std::string operator()(const std::string& name) const {
+        return "Hi, " + name;
+    }
+};
+
+// Member function
+struct Person {
+    std::string name;
+    Person(std::string n) : name(std::move(n)) {}
+    std::string say_hello(const std::string& to) const {
+        return "Hi " + to + ", I'm " + name;
+    }
+    int add(int x) const { return x + 10; }
+};
+
+// Test Function
+TEST(ProxyTest, FunctionReference_Success) {
     Proxy<decltype(greet)> proxy(greet);
-
     auto result = proxy("Alice");
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, "Hello, Alice");
 }
 
-TEST(ProxyTest, FreeFunctionPointerWeakPtrValid) {
-    using FnPtr = std::string (*)(const std::string&);
-    auto func = std::make_shared<FnPtr>(&greet);
-    std::weak_ptr<FnPtr> weak = func;
+TEST(ProxyTest, FunctionReference_Failure) {
+    // impossible to fail: actual reference
+    SUCCEED();
+}
 
-    Proxy<FnPtr> proxy(weak);  // FnPtr matches FunctionPtr<F> → StandaloneFunction
+// Test Function Pointer
+TEST(ProxyTest, FunctionPointer_Success) {
+    using FnPtr = decltype(&square);
+    Proxy<FnPtr> proxy(&square);
+    auto result = proxy(4);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, 16);
+}
 
+TEST(ProxyTest, FunctionPointer_Failure) {
+    using FnPtr = decltype(&square);
+    Proxy<FnPtr> proxy(static_cast<FnPtr>(nullptr));
+    auto result = proxy(3);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_STREQ(result.error().what(), "Proxy: callable target is expired or uninitialized");
+}
+
+// Test Functor
+TEST(ProxyTest, FunctorReference_Success) {
+    Multiplier m(5);
+    Proxy<Multiplier> proxy(m);
+    auto result = proxy(2);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, 10);
+}
+
+TEST(ProxyTest, FunctorWeakPtr_Failure) {
+    std::weak_ptr<Multiplier> weak;
+    {
+        auto sp = std::make_shared<Multiplier>(3);
+        weak = sp;
+    }
+    Proxy<Multiplier> proxy(weak);
+    auto result = proxy(2);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_STREQ(result.error().what(), "Proxy: callable target is expired or uninitialized");
+}
+
+// Test std::function
+TEST(ProxyTest, StdFunction_Success) {
+    std::function<std::string(const std::string&)> fn = greet;
+    Proxy<decltype(fn)> proxy(fn);
     auto result = proxy("Bob");
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, "Hello, Bob");
 }
 
-// ✅ Proxy with expired weak_ptr
-TEST(ProxyTest, FreeFunctionPointerWeakPtrExpired) {
-    using FnPtr = std::string (*)(const std::string&);
-    std::weak_ptr<FnPtr> weak;
-
-    {
-        auto func = std::make_shared<FnPtr>(&greet);
-        weak = func;
-    }  // func is destroyed here
-
-    Proxy<FnPtr> proxy(weak);
-    auto result = proxy("Charlie");
+TEST(ProxyTest, StdFunction_Failure) {
+    std::function<std::string(const std::string&)> fn;
+    Proxy<decltype(fn)> proxy(fn);
+    auto result = proxy("Bob");
     ASSERT_FALSE(result.has_value());
-    
-    // Check the actual error type/message
-    const auto& error = result.error();
-    EXPECT_STREQ(error.what(), "Proxy: callable target is expired or uninitialized");
+    EXPECT_STREQ(result.error().what(), "std::function call to empty target");
 }
 
+// Test MemberFunctionPtr
+TEST(ProxyTest, MemberFunction_Success) {
+    Person p("Charlie");
+    auto fn = &Person::say_hello;
+    Proxy<decltype(fn)> proxy(fn, &p);
+    auto result = proxy("Alice");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, "Hi Alice, I'm Charlie");
+}
+
+TEST(ProxyTest, MemberFunction_Failure) {
+    auto fn = &Person::add;
+    using ProxyType = Proxy<decltype(fn)>;
+    ProxyType proxy(fn, static_cast<typename ProxyType::ObjectType*>(nullptr));
+    auto result = proxy(5);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_STREQ(result.error().what(), "Member function proxy object is null");
+}

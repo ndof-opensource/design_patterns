@@ -52,7 +52,7 @@ public:
     auto operator()(Args&&... args) const
         -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
     {
-        if (func_ptr) {
+        if (func_ptr && *func_ptr) {
             return std::invoke(*func_ptr, std::forward<Args>(args)...);
         }
         if (auto sp = func_wp.lock()) {
@@ -106,10 +106,15 @@ public:
     auto operator()(Args&&... args) const
         -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
     {
-        if (fn) {
-            return std::invoke(*fn, std::forward<Args>(args)...);
+        if (!fn.has_value()) {
+            return std::unexpected(bad_proxy_call("std::function proxy target uninitialized"));
         }
-        return std::unexpected(bad_proxy_call("Proxy: callable target is expired or uninitialized"));
+    
+        try {
+            return std::invoke(*fn, std::forward<Args>(args)...);
+        } catch (const std::bad_function_call& e) {
+            return std::unexpected(bad_proxy_call("std::function call to empty target"));
+        }    
     }
 
     bool is_valid() const {
@@ -117,21 +122,39 @@ public:
     }
 };
 
+// helper function to extract class type from member function pointer
+template <typename T>
+struct memfn_class;
+
+template <typename R, typename C, typename... Args>
+struct memfn_class<R (C::*)(Args...)> {
+    using type = C;
+};
+
+template <typename R, typename C, typename... Args>
+struct memfn_class<R (C::*)(Args...) const> {
+    using type = const C;
+};
+
 // Member function pointer
 template <MemberFunctionPtr F>
 class Proxy<F> {
+public:
+    using ObjectType = typename memfn_class<F>::type;
+
+private:
     F member_ptr;
-    void* object_ptr;
+    ObjectType* object_ptr;
 
 public:
-    Proxy(F fn, void* obj) : member_ptr(fn), object_ptr(obj) {}
+    Proxy(F fn, ObjectType* obj) : member_ptr(fn), object_ptr(obj) {}
 
     template <typename... Args>
     auto operator()(Args&&... args) const
-        -> std::expected<std::invoke_result_t<F, void*, Args...>, bad_proxy_call>
+        -> std::expected<std::invoke_result_t<F, ObjectType*, Args...>, bad_proxy_call>
     {
         if (object_ptr) {
-            return std::invoke(member_ptr, static_cast<typename std::remove_pointer_t<void>*>(object_ptr), std::forward<Args>(args)...);
+            return std::invoke(member_ptr, object_ptr, std::forward<Args>(args)...);
         }
         return std::unexpected(bad_proxy_call("Member function proxy object is null"));
     }

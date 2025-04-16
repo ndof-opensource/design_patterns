@@ -124,3 +124,29 @@ TEST(ProxyTest, MemberFunction_Failure) {
     ASSERT_FALSE(result.has_value());
     EXPECT_STREQ(result.error().what(), "Member function proxy object is null");
 }
+
+TEST(ProxyTest, Lambda_Success) {
+    auto lambda = [](int x) { return x + 42; };
+    Proxy<decltype(lambda)> proxy(lambda);
+    auto result = proxy(8);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, 50);
+}
+
+TEST(ProxyTest, Lambda_WeakPtrExpired) {
+    auto original_lambda = [](int x) { return x * 2; };
+    using LambdaType = decltype(original_lambda);
+
+    std::weak_ptr<LambdaType> weak;
+
+    {
+        auto sp = std::make_shared<LambdaType>(original_lambda);
+        weak = sp;
+    }
+
+    Proxy<LambdaType> proxy(weak);
+    auto result = proxy(5);
+    ASSERT_FALSE(result.has_value());
+    EXPECT_STREQ(result.error().what(), "Proxy: callable target is expired or uninitialized");
+}
+

@@ -77,6 +77,15 @@ TEST(ProxyTest, FunctorReference_Success) {
     EXPECT_EQ(*result, 10);
 }
 
+// Test Functor Weak Pointer
+TEST(ProxyTest, FunctorWeakPtr_Success) {
+    Multiplier m(3);
+    Proxy<Multiplier> proxy(m);
+    auto result = proxy(4);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, 12);
+}
+
 TEST(ProxyTest, FunctorWeakPtr_Failure) {
     std::weak_ptr<Multiplier> weak;
     {

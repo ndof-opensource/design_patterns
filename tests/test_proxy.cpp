@@ -142,6 +142,17 @@ TEST(ProxyTest, Lambda_Success) {
     EXPECT_EQ(*result, 50);
 }
 
+TEST(ProxyTest, Lamdda_WeakPtr_Success) {
+    auto lambda = [](int x) { return x + 42; };
+    using LambdaType = decltype(lambda);
+    auto sp = std::make_shared<LambdaType>(lambda);
+    std::weak_ptr<LambdaType> wp = sp;
+    Proxy<LambdaType> proxy(wp);
+    auto result = proxy(9);
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ(*result, 51);
+}
+
 TEST(ProxyTest, Lambda_WeakPtrExpired) {
     auto original_lambda = [](int x) { return x * 2; };
     using LambdaType = decltype(original_lambda);

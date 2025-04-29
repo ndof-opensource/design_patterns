@@ -1,5 +1,6 @@
 #pragma once
 
+#include <exception>
 #include <memory>
 #include <optional>
 #include <functional>
@@ -18,9 +19,76 @@ private:
     std::string _msg;
 };
 
-template <Callable F>
-class Proxy;
+// All simple Function-like objects
+// Function | FunctionPtr | Functor | StdFunction
+template <typename F>
+requires (Function<F> || FunctionRef<F> || FunctionPtr<F> || Functor<F> || StdFunction<F>)
+class Proxy {
+    F f;
+public:
+    Proxy() = default;
 
+    template<typename G>
+    explicit Proxy(G&& f_)
+    requires std::constructible_from<F, G> : f(std::forward<G>(f_)) {}
+
+    bool is_valid() const {
+        if constexpr (FunctionPtr<F>) {
+            return f != nullptr;
+        } else if constexpr (StdFunction<F>) {
+            return static_cast<bool>(f);
+        } else {
+            return true;
+        }
+    }
+    template<typename... Args>
+    auto operator()(Args&&... args) const 
+        -> std::expected<std::invoke_result_t<F, Args...>, std::exception_ptr>
+    {
+        if (!is_valid()) {
+            return std::unexpected(std::make_exception_ptr(bad_proxy_call{"Proxy: callable target is expired or uninitialized"}));
+        }
+
+        try {
+            return std::invoke(f, std::forward<Args>(args)...);
+        } catch (...) {
+            return std::unexpected(std::current_exception());
+        }
+    }
+};
+
+// Weak Pointer
+template<typename F>
+class Proxy<std::weak_ptr<F>> {
+    std::weak_ptr<F> f;
+public:
+    Proxy() = default;
+
+    explicit Proxy(std::weak_ptr<F> f_)
+        : f(std::move(f_)) {}
+
+    bool is_valid() const {
+        return !f.expired(); // still useful for light checks
+    }
+
+    template<typename... Args>
+    auto operator()(Args&&... args) const
+        -> std::expected<std::invoke_result_t<F&, Args...>, std::exception_ptr>
+    {
+        auto sp = f.lock(); // lock first
+        if (!sp) {
+            return std::unexpected(std::make_exception_ptr(bad_proxy_call{"Proxy: callable target is expired or uninitialized"}));
+        }
+
+        try {
+            return std::invoke(*sp, std::forward<Args>(args)...);
+        } catch (...) {
+            return std::unexpected(std::current_exception());
+        }
+    }
+};
+
+/*
 // Function (actual function type, not pointer)
 template <Function F>
 class Proxy<F> {
@@ -121,6 +189,7 @@ public:
         return fn.has_value();
     }
 };
+*/
 
 // helper function to extract class type from member function pointer
 template <typename T>

@@ -19,6 +19,17 @@ private:
     std::string _msg;
 };
 
+// Helper function to correctly build a Proxy regardless of what user passes
+template<typename F>
+auto make_proxy(F&& f) {
+    if constexpr (std::is_same_v<std::decay_t<F>, std::shared_ptr<typename std::decay_t<F>::element_type>>) {
+        // User passed a shared_ptr<F> --> store a weak_ptr<F>
+        return Proxy<std::weak_ptr<typename std::decay_t<F>::element_type>>(std::weak_ptr<typename std::decay_t<F>::element_type>(std::forward<F>(f)));
+    } else {
+        // Anything else is handled --> create and return a normal Proxy
+        return Proxy<std::decay_t<F>>(std::forward<F>(f));
+    }
+}
 // All simple Function-like objects
 // Function | FunctionPtr | Functor | StdFunction
 template <typename F>

@@ -32,7 +32,10 @@
 *.app
 
 # Build directory
-build/*
+*/build/*
 
 # Mac files
 .DS_Store
+
+# Compile Commands
+compile_commands.json

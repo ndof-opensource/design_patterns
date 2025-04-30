@@ -8,7 +8,8 @@
 #include <expected>
 #include <utility>
 #include <stdexcept>
-#include "../callable_traits/include/callable_concepts.hpp"
+#include "../../callable_traits/include/callable_concepts.hpp"
+#include "../../callable_traits/include/callable_traits.hpp"
 
 namespace ndof {
 
@@ -19,22 +20,26 @@ private:
     std::string _msg;
 };
 
-// Helper function to correctly build a Proxy regardless of what user passes
+// Concept to combine all non-Member Function Pointer types
+// TODO: Should we add this to callable_concepts??
 template<typename F>
-auto make_proxy(F&& f) {
-    if constexpr (std::is_same_v<std::decay_t<F>, std::shared_ptr<typename std::decay_t<F>::element_type>>) {
-        // User passed a shared_ptr<F> --> store a weak_ptr<F>
-        return Proxy<std::weak_ptr<typename std::decay_t<F>::element_type>>(std::weak_ptr<typename std::decay_t<F>::element_type>(std::forward<F>(f)));
-    } else {
-        // Anything else is handled --> create and return a normal Proxy
-        return Proxy<std::decay_t<F>>(std::forward<F>(f));
-    }
-}
+concept NonMemberFunctionType = 
+    Function<F> 
+    || FunctionRef<F>
+    || FunctionPtr<F> 
+    || Functor<F>
+    || StdFunction<F>;
+    
+// base Proxy template
+template<typename F>
+class Proxy;
+
 // All simple Function-like objects
 // Function | FunctionPtr | Functor | StdFunction
 template <typename F>
-requires (Function<F> || FunctionRef<F> || FunctionPtr<F> || Functor<F> || StdFunction<F>)
-class Proxy {
+requires NonMemberFunctionType<F>
+class Proxy<F> {
+
     F f;
 public:
     Proxy() = default;
@@ -70,12 +75,16 @@ public:
 
 // Weak Pointer
 template<typename F>
+requires NonMemberFunctionType<F>
 class Proxy<std::weak_ptr<F>> {
     std::weak_ptr<F> f;
+
 public:
     Proxy() = default;
 
-    explicit Proxy(std::weak_ptr<F> f_)
+    template<typename G>
+    requires std::is_convertible_v<std::weak_ptr<G>, std::weak_ptr<F>>
+    explicit Proxy(std::weak_ptr<G> f_)
         : f(std::move(f_)) {}
 
     bool is_valid() const {
@@ -86,7 +95,7 @@ public:
     auto operator()(Args&&... args) const
         -> std::expected<std::invoke_result_t<F&, Args...>, std::exception_ptr>
     {
-        auto sp = f.lock(); // lock first
+        auto sp = f.lock();
         if (!sp) {
             return std::unexpected(std::make_exception_ptr(bad_proxy_call{"Proxy: callable target is expired or uninitialized"}));
         }
@@ -99,150 +108,98 @@ public:
     }
 };
 
-/*
-// Function (actual function type, not pointer)
-template <Function F>
-class Proxy<F> {
-    F& func;
-public:
-    explicit Proxy(F& f) : func(f) {}
-
-    template <typename... Args>
-    auto operator()(Args&&... args) const
-        -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
-    {
-        return std::invoke(func, std::forward<Args>(args)...);
-    }
-
-    bool is_valid() const { return true; }
-};
-
-// Function pointer
-template <FunctionPtr F>
-class Proxy<F> {
-    std::optional<F> func_ptr;
-    std::weak_ptr<F> func_wp;
-
-public:
-    explicit Proxy(F f) : func_ptr(f) {}
-    explicit Proxy(std::weak_ptr<F> wp) : func_wp(std::move(wp)) {}
-
-    template <typename... Args>
-    auto operator()(Args&&... args) const
-        -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
-    {
-        if (func_ptr && *func_ptr) {
-            return std::invoke(*func_ptr, std::forward<Args>(args)...);
-        }
-        if (auto sp = func_wp.lock()) {
-            return std::invoke(*sp, std::forward<Args>(args)...);
-        }
-        return std::unexpected(bad_proxy_call("Proxy: callable target is expired or uninitialized"));
-    }
-
-    bool is_valid() const {
-        return func_ptr.has_value() || !func_wp.expired();
-    }
-};
-
-// Functor (callable object with operator())
-template <Functor F>
-class Proxy<F> {
-    std::optional<std::reference_wrapper<F>> ref;
-    std::weak_ptr<F> wp;
-
-public:
-    explicit Proxy(F& f) : ref(std::ref(f)) {}
-    explicit Proxy(std::weak_ptr<F> wp) : wp(std::move(wp)) {}
-
-    template <typename... Args>
-    auto operator()(Args&&... args) const
-        -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
-    {
-        if (ref) {
-            return std::invoke(ref->get(), std::forward<Args>(args)...);
-        }
-        if (auto sp = wp.lock()) {
-            return std::invoke(*sp, std::forward<Args>(args)...);
-        }
-        return std::unexpected(bad_proxy_call("Proxy: callable target is expired or uninitialized"));
-    }
-
-    bool is_valid() const {
-        return ref.has_value() || !wp.expired();
-    }
-};
-
-// std::function
-template <StdFunction F>
-class Proxy<F> {
-    std::optional<F> fn;
-
-public:
-    explicit Proxy(F f) : fn(std::move(f)) {}
-
-    template <typename... Args>
-    auto operator()(Args&&... args) const
-        -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
-    {
-        if (!fn.has_value()) {
-            return std::unexpected(bad_proxy_call("std::function proxy target uninitialized"));
-        }
-    
-        try {
-            return std::invoke(*fn, std::forward<Args>(args)...);
-        } catch (const std::bad_function_call& e) {
-            return std::unexpected(bad_proxy_call("std::function call to empty target"));
-        }    
-    }
-
-    bool is_valid() const {
-        return fn.has_value();
-    }
-};
-*/
-
-// helper function to extract class type from member function pointer
-template <typename T>
-struct memfn_class;
-
-template <typename R, typename C, typename... Args>
-struct memfn_class<R (C::*)(Args...)> {
-    using type = C;
-};
-
-template <typename R, typename C, typename... Args>
-struct memfn_class<R (C::*)(Args...) const> {
-    using type = const C;
-};
-
 // Member function pointer
-template <MemberFunctionPtr F>
+template<MemberFunctionPtr F>
 class Proxy<F> {
-public:
-    using ObjectType = typename memfn_class<F>::type;
+    // Use CallableTraits to extract object type
+    using Traits = CallableTraits<F>;
+    using ObjectType = typename Traits::ClassType;
 
 private:
-    F member_ptr;
-    ObjectType* object_ptr;
+    F member_ptr{};
+    ObjectType* object_ptr{};
 
 public:
-    Proxy(F fn, ObjectType* obj) : member_ptr(fn), object_ptr(obj) {}
+    Proxy() = default;
 
-    template <typename... Args>
-    auto operator()(Args&&... args) const
-        -> std::expected<std::invoke_result_t<F, ObjectType*, Args...>, bad_proxy_call>
-    {
-        if (object_ptr) {
-            return std::invoke(member_ptr, object_ptr, std::forward<Args>(args)...);
-        }
-        return std::unexpected(bad_proxy_call("Member function proxy object is null"));
-    }
+    template<typename Obj>
+    requires std::is_convertible_v<Obj*, ObjectType*>
+    Proxy(F fn, Obj* obj) : member_ptr(fn), object_ptr(obj) {}
 
     bool is_valid() const {
         return object_ptr != nullptr;
     }
+    template <typename... Args>
+    auto operator()(Args&&... args) const
+        -> std::expected<std::invoke_result_t<F, ObjectType*, Args...>, std::exception_ptr>
+    {
+        if (object_ptr) {
+            try {
+                return std::invoke(member_ptr, object_ptr, std::forward<Args>(args)...);
+            } catch (...) {
+                return std::unexpected(std::current_exception());
+            }
+        } 
+        // object_ptr was invalid
+        return std::unexpected(std::make_exception_ptr(
+            bad_proxy_call{"Member function proxy object is null"}
+        ));
+    }
+
 };
+
+// helper traits for make_proxy handling of lambdas
+template<typename T> struct is_shared_ptr                       : std::false_type {};
+template<typename U> struct is_shared_ptr<std::shared_ptr<U>>   : std::true_type {};
+
+template<typename T> struct is_weak_ptr                         : std::false_type {};
+template<typename U> struct is_weak_ptr<std::weak_ptr<U>>       : std::true_type {};
+
+// Helper function to correctly build a Proxy regardless of what user passes
+
+// shared_ptr  →  Proxy<weak_ptr<F>>
+template<typename F>
+auto make_proxy(const std::shared_ptr<F>& sp)
+{
+    return Proxy<std::weak_ptr<F>>(std::weak_ptr<F>(sp));
+}
+
+// weak_ptr  →  Proxy<weak_ptr<F>>      (for symmetry / zero-copy)
+template<typename F>
+auto make_proxy(const std::weak_ptr<F>& wp)
+{
+    return Proxy<std::weak_ptr<F>>(wp);
+}
+
+// member-function pointer + object pointer  →  Proxy<MF>
+template<MemberFunctionPtr MF, typename Obj>
+auto make_proxy(MF mf, Obj* obj)
+    -> Proxy<MF>
+{
+    static_assert(std::is_convertible_v<Obj*, typename CallableTraits<MF>::ClassType*>,
+                  "Object pointer is not compatible with the member-function’s class type");
+    return Proxy<MF>(mf, obj);
+}
+
+// member-function pointer + object reference  →  Proxy<MF>
+template<MemberFunctionPtr MF, typename Obj>
+auto make_proxy(MF mf, Obj& obj)
+    -> Proxy<MF>
+{
+    static_assert(std::is_convertible_v<Obj*, typename CallableTraits<MF>::ClassType*>,
+                  "Object reference is not compatible with the member-function’s class type");
+    return Proxy<MF>(mf, &obj);
+}
+
+// fallback  (anything else)  →  Proxy<decayed F>
+template<typename F>
+requires (!MemberFunctionPtr<std::decay_t<F>> &&
+          !is_shared_ptr<std::decay_t<F>>::value &&
+          !is_weak_ptr<std::decay_t<F>>::value)
+auto make_proxy(F&& f)
+{
+    return Proxy<std::decay_t<F>>(std::forward<F>(f));
+}
 
 } // namespace ndof
 

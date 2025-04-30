@@ -58,7 +58,7 @@ public:
         }
     }
     template<typename... Args>
-    auto operator()(Args&&... args) const 
+    auto operator()(Args&&... args) const noexcept
         -> std::expected<std::invoke_result_t<F, Args...>, std::exception_ptr>
     {
         if (!is_valid()) {
@@ -92,7 +92,7 @@ public:
     }
 
     template<typename... Args>
-    auto operator()(Args&&... args) const
+    auto operator()(Args&&... args) const noexcept
         -> std::expected<std::invoke_result_t<F&, Args...>, std::exception_ptr>
     {
         auto sp = f.lock();
@@ -130,7 +130,7 @@ public:
         return object_ptr != nullptr;
     }
     template <typename... Args>
-    auto operator()(Args&&... args) const
+    auto operator()(Args&&... args) const noexcept
         -> std::expected<std::invoke_result_t<F, ObjectType*, Args...>, std::exception_ptr>
     {
         if (object_ptr) {

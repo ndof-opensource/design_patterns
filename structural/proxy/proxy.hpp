@@ -9,7 +9,7 @@
 #include <stdexcept>
 
 // Should be "callable_traits/callable_concepts.hpp"
-#include "callable_concepts.hpp"
+#include "ndof-os/callable_traits/callable_concepts.hpp"
 
 namespace ndof {
 

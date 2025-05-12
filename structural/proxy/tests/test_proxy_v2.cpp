@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "../proxy.hpp"
+#include "ndof-os/callable_traits/proxy.hpp"
 #include <string>
 #include <memory>
 

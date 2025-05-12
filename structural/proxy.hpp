@@ -7,7 +7,9 @@
 #include <expected>
 #include <utility>
 #include <stdexcept>
-#include "../callable_traits/include/callable_concepts.hpp"
+
+// Should be "callable_traits/callable_concepts.hpp"
+#include "callable_concepts.hpp"
 
 namespace ndof {
 
@@ -17,6 +19,10 @@ struct bad_proxy_call : std::bad_function_call {
 private:
     std::string _msg;
 };
+
+
+// TODO: add support for exception handling callbacks on enter/exit.  
+// TODO: Define a class that defines the callback object interface requirements alternatively.
 
 template <Callable F>
 class Proxy;

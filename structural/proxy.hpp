@@ -8,8 +8,8 @@
 #include <expected>
 #include <utility>
 #include <stdexcept>
-#include "../../callable_traits/include/callable_concepts.hpp"
-#include "../../callable_traits/include/callable_traits.hpp"
+#include <ndof-os/callable_traits/callable_concepts.hpp>
+#include <ndof-os/callable_traits/callable_traits.hpp>
 
 namespace ndof {
 
@@ -177,7 +177,7 @@ auto make_proxy(MF mf, Obj* obj)
     -> Proxy<MF>
 {
     static_assert(std::is_convertible_v<Obj*, typename CallableTraits<MF>::ClassType*>,
-                  "Object pointer is not compatible with the member-function’s class type");
+                  "Object pointer is not compatible with the member-function's class type");
     return Proxy<MF>(mf, obj);
 }
 
@@ -187,7 +187,7 @@ auto make_proxy(MF mf, Obj& obj)
     -> Proxy<MF>
 {
     static_assert(std::is_convertible_v<Obj*, typename CallableTraits<MF>::ClassType*>,
-                  "Object reference is not compatible with the member-function’s class type");
+                  "Object reference is not compatible with the member-function's class type");
     return Proxy<MF>(mf, &obj);
 }
 

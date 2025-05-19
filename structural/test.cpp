@@ -1,4 +1,4 @@
-#include "design_patterns/proxy.hpp"
+#include "proxy.hpp"
 
 
 int main() {

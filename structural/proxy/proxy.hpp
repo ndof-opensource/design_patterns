@@ -53,7 +53,7 @@ namespace ndof
         qualified_any inner;
 
         template <auto f, typename ...AllocatorType>
-        requires (sizeof...(AllocatorType) == <2)
+        requires (sizeof...(AllocatorType)<2)
         struct Inner;
 
         template <StandaloneFunction auto f>

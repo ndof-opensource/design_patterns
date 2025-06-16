@@ -126,6 +126,7 @@ namespace ndof
         // TODO: Consider r-value member functions and member function pointers.
 
         // TODO: Use NDoF GenerateFunctionPointerTraits to generate the function pointer type.
+        // TODO: Fix this. it's broken.  F is a Function, so we'll need to use the other parameters too.
         using ExecutePtr = ndof::as_function_ptr_t<F>;
         ExecutePtr execute_ptr;
 
@@ -162,11 +163,7 @@ namespace ndof
             // TODO: requires (std::is_nothrow_move_constructible_v<>)
                 : execute_ptr(&Inner<f>::execute),  
         {
-            if constexpr (std::is_rvalue_reference_v<T>) {
-                inner = std::make_any<std::make_unique<similarly_qualified_t<std::decay_t<T>>>)(std::forward<T>(object);
-            } else {
-                inner = std::make_any<std::make_unique<similarly_qualified_t<std::decay_t<T>>>(std::forward<T>(object), Delete<similarly_qualified_t<std::decay_t<T>>>(alloc));
-            }
+
         }
 
         template <typename... A>

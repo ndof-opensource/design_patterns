@@ -1,133 +1,223 @@
-// #pragma once
+#ifndef NDOF_OS_CALLABLE_TRAITS_PROXY_HPP
+#define NDOF_OS_CALLABLE_TRAITS_PROXY_HPP
 
 // #include <memory>
 // #include <optional>
 // #include <functional>
 // #include <type_traits>
 // #include <expected>
-// #include <utility>   
+// #include <utility>
 // #include <stdexcept>
 
-// // Should be "callable_traits/callable_concepts.hpp"
 #include <ndof-os/callable_traits/callable_concepts.hpp>
 #include <ndof-os/callable_traits/callable_traits.hpp>
 #include <ndof-os/callable_traits/qualified_by.hpp>
+#include <ndof-os/callable_traits/callable_type_generator.hpp>
 
 #include <variant>
 #include <utility>
 
 // namespace ndof {
 
-
-// // TODO: add support for exception handling callbacks on enter/exit.  
+// // TODO: add support for exception handling callbacks on enter/exit.
 // // TODO: Define a class that defines the callback object interface requirements alternatively.
- 
 
-namespace ndof {
-  
-    template <Function F, bool const_required = false, bool volatile_required = false, template<typename> typename Alloc = std::allocator >
-    class Proxy{
+// TODO: in callable_type_generator.hpp, from line 264, the types defined should be functions, not function pointers.
+namespace ndof
+{
+
+    template <Function F, typename AllocDummy, bool const_required = false, bool volatile_required = false, template <typename> typename Alloc = std::allocator>
+    class Proxy
+    {
     public:
-        using typename CallableTraits<F>::ReturnType;
-        using typename CallableTraits<F>::ArgTypes;
+        using return_type = typename CallableTraits<F>::ReturnType;
+        using arg_types = typename CallableTraits<F>::ArgTypes;
 
         // TODO: Move to CallableTraits.
-        consteval static bool is_noexcept(){ return QualifiedBy<F, Qualifier::NoExcept>; }
-        consteval static bool is_void_return(){ return std::is_void_v<R>; }
+        consteval static bool is_noexcept() { return QualifiedBy<F, Qualifier::NoExcept>; }
+        consteval static bool is_void_return() { return std::is_void_v<return_type>; }
 
     private:
-        std::any inner;
+        // TODO: Promote to CallableTraits.
 
-        template<auto f, typename Alloc = void>
+        template <typename T>
+        using add_const_if_required = std::conditional_t<const_required, std::add_const_t<T>, T>;
+
+        template <typename T>
+        using add_volatile_if_required = std::conditional_t<volatile_required, std::add_volatile_t<T>, T>;
+
+        template <typename T>
+        using similarly_qualified_t = add_volatile_if_required<add_const_if_required<T>>;
+
+        using qualified_any = similarly_qualified_t<std::any>;
+        qualified_any inner;
+
+        template <auto f, typename ...AllocatorType>
+        requires (sizeof...(AllocatorType) == <2)
         struct Inner;
 
-        template<StandaloneFunction auto f>
-        struct Inner<f> {
+        template <StandaloneFunction auto f>
+        struct Inner<f>
+        {
 
-            template<typename ...A>
-            static R execute(std::any& a, A&&... args) noexcept(is_noexcept()) 
-                requires (std::is_invocable_r_v<R, F,  A...> )       
-            {   
+            template <typename... A>
+            static return_type execute(qualified_any& a, A &&...args) noexcept(is_noexcept())
+                requires(std::is_invocable_r_v<return_type, F, A...>)
+            {
                 return f(std::forward<A>(args)...);
             }
-        }; 
+        };
 
-        // template<MemberFunction auto mf>
-        // struct Inner<mf> {
+        template<MemberFunctionPtr auto mf, >
+        struct Inner<mf> {
+            using typename CallableTraits<decltype(mf)>::ClassType;
 
-        //     template<typename ...A>
-        //     static R execute(std::any& a, A&&... args) noexcept(is_noexcept()) 
-        //         requires (std::is_invocable_r_v<R, F,  A...> )       
-        //     {   
-                
-        //     }
-        // }; 
+            template<typename ...A>
+            static return_type execute(qualified_any& a, A&&... args) noexcept(is_noexcept())
+                requires (std::is_invocable_r_v<return_type, F,  A...> )
+            {
 
-        template<typename ...A>
-        requires std::same_as<ArgumentHelper<A...>, ArgTypes>
-        using ExecutePtr = ReturnType (*)(std::any&, A&&...);
+            }
+        };
 
+        // TODO: Consider r-value member functions and member function pointers.
+
+        // TODO: Use NDoF GenerateFunctionPointerTraits to generate the function pointer type.
+        using ExecutePtr = ndof::as_function_ptr_t<F>;
         ExecutePtr execute_ptr;
 
+        template<typename Fn>
+        using DefaultMethodPtr =  GenerateFunctionPtr<Fn::qualifiers, typename F::ReturnType, typename F::ArgTypes>::type;
+        
+        // Define a deleter that uses the allocator
+        template <typename T>
+        struct Delete {
+            
+            using AllocTraits = std::allocator_traits<Alloc<T>>;
+            Alloc<T> alloc;
+
+            Delete(const Alloc<T>& a = Alloc<T>()) : alloc(a) {}
+
+            void operator()(T* ptr) const {
+                if (ptr) {
+                    AllocTraits::destroy(alloc, ptr);
+                    AllocTraits::deallocate(alloc, ptr, 1);
+                }
+            }
+        };
+
     public:
-        constexpr explicit Proxy(Standalone auto f) :  execute_ptr(f) noexcept {
+        constexpr explicit Proxy(StandaloneFunction auto f) noexcept : execute_ptr(&Inner<f>::execute)  
+        {
         }
 
-        template<typename ...A>
-        R operator()(auto&&... args) noexcept(is_noexcept()) const volatile
-            requires (std::is_invocable_r_v<R, F, A...> && StandaloneFunction<F>)       
-        {   
+        // LOOKEE HERE ------------------------------------------------------------------------------------<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+        template<typename T, typename Allocator>
+        constexpr explicit Proxy(T&& object, MemberFunctionPtr auto f, Allocator& alloc) noexcept 
+            // TODO: requires (std::is_nothrow_move_constructible_v<>)
+                : execute_ptr(&Inner<f>::execute),  
+        {
+            if constexpr (std::is_rvalue_reference_v<T>) {
+                inner = std::make_any<std::make_unique<similarly_qualified_t<std::decay_t<T>>>)(std::forward<T>(object);
+            } else {
+                inner = std::make_any<std::make_unique<similarly_qualified_t<std::decay_t<T>>>(std::forward<T>(object), Delete<similarly_qualified_t<std::decay_t<T>>>(alloc));
+            }
+        }
+
+        template <typename... A>
+        return_type operator()(auto &&...args) noexcept(is_noexcept())
+            requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>)
+        {
             return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
         }
-        
 
-        Alloc get_allocator(){
-
+        template <typename... A>
+        return_type operator()(auto &&...args) const noexcept(is_noexcept()) 
+            requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>)
+        {
+            return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
         }
 
+        template <typename... A>
+        return_type operator()(auto &&...args) volatile noexcept(is_noexcept())
+            requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>) {
+                return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
+        }
+
+        template <typename... A>
+        return_type operator()(auto &&...args) const volatile noexcept(is_noexcept())
+            requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>) {
+                return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
+        }
+
+        // // TODO: Implement.
+        // Alloc get_allocator()
+        // {
+        // }
     };
 
+    template <typename T, typename Alloc>
+    using ReboundAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<T>;
+
+    // TODO: CallableTraits that takes instances.
+template<
+    typename T,
+    typename Dummy,
+    bool const_required = std::is_const_v<std::remove_reference_t<std::decay_t<T>>>,
+    bool volatile_required = std::is_volatile_v<std::remove_reference_t<std::decay_t<T>>>,
+    template<typename> typename PassedAlloc = std::allocator
+>
+
+Proxy(T&& object, auto f, PassedAlloc<Dummy>& alloc) ->
+    Proxy<
+        decltype(f),
+        int,
+        std::is_const_v<std::remove_reference_t<std::decay_t<T>>>,
+        std::is_volatile_v<std::remove_reference_t<std::decay_t<T>>>,
+        PassedAlloc
+    >;
+
+}
 
 
-        // template<typename ...A>
-        // R operator()(A&&... args) const noexcept(QualifiedBy<F, Qualifier::NoExcept>) 
-        //     requires std::is_invocable_v<F, A...> 
-        //     -> std::invoke_result_t<F, A...>
-        // {
-        //     auto x = []() noexcept{};
-        //     if (noexcept(x)) {
 
-        //     }
+// template<typename ...A>
+// R operator()(A&&... args) const noexcept(QualifiedBy<F, Qualifier::NoExcept>)
+//     requires std::is_invocable_v<F, A...>
+//     -> std::invoke_result_t<F, A...>
+// {
+//     auto x = []() noexcept{};
+//     if (noexcept(x)) {
 
-        //     if constexpr (QualifiedBy<F, Qualifier::NoExcept>) {
-        //         return std::invoke(callable, std::forward<A>(args)...);
-        //     } else {
-        //         try {
-        //             return std::invoke(callable, std::forward<A>(args)...);
-        //         } 
-        //         } catch (...) {
+//     }
 
-        //             if (std::current_exception()) {
-        //                 try {
-        //                     std::rethrow_exception(std::current_exception());
-        //                 } catch (const std::exception& e) {
-        //                     throw bad_proxy_call(e.what());
-        //                 } catch (...) {
-        //                     // TODO: Bundle the caught exception into the bad_proxy_call exception.
-        //                     throw bad_proxy_call("Unknown exception in Proxy call");
-        //                 }
-        //             }
-        //             throw bad_proxy_call("Unknown exception in Proxy call");
-        //         }
-        //     }
-        // }
+//     if constexpr (QualifiedBy<F, Qualifier::NoExcept>) {
+//         return std::invoke(callable, std::forward<A>(args)...);
+//     } else {
+//         try {
+//             return std::invoke(callable, std::forward<A>(args)...);
+//         }
+//         } catch (...) {
 
-    }; 
-    
+//             if (std::current_exception()) {
+//                 try {
+//                     std::rethrow_exception(std::current_exception());
+//                 } catch (const std::exception& e) {
+//                     throw bad_proxy_call(e.what());
+//                 } catch (...) {
+//                     // TODO: Bundle the caught exception into the bad_proxy_call exception.
+//                     throw bad_proxy_call("Unknown exception in Proxy call");
+//                 }
+//             }
+//             throw bad_proxy_call("Unknown exception in Proxy call");
+//         }
+//     }
+// }
+ 
 
-    // TODO: add support for const, volatile, const volatile qualifiers
-    // TODO: add support for variadic functions.
-    // TODO: add support for noexcept
+// TODO: add support for const, volatile, const volatile qualifiers
+// TODO: add support for variadic functions.
+// TODO: add support for noexcept
 
 // // Function pointer
 // template <FunctionPtr F>
@@ -200,12 +290,12 @@ namespace ndof {
 //         if (!fn.has_value()) {
 //             return std::unexpected(bad_proxy_call("std::function proxy target uninitialized"));
 //         }
-    
+
 //         try {
 //             return std::invoke(*fn, std::forward<Args>(args)...);
 //         } catch (const std::bad_function_call& e) {
 //             return std::unexpected(bad_proxy_call("std::function call to empty target"));
-//         }    
+//         }
 //     }
 
 //     bool is_valid() const {
@@ -257,62 +347,62 @@ namespace ndof {
 
 // } // namespace ndof
 
+//     template <typename... Args>
+//         requires (std::is_invocable_v<F, Args...> and !QualifiedBy<F,Qualifier::NoExcept>)
+//     auto operator()(Args&&... args)
+//     {
+//         return std::invoke(func, std::forward<Args>(args)...);
+//     }
 
-    //     template <typename... Args>
-    //         requires (std::is_invocable_v<F, Args...> and !QualifiedBy<F,Qualifier::NoExcept>)
-    //     auto operator()(Args&&... args)  
-    //     {
-    //         return std::invoke(func, std::forward<Args>(args)...);
-    //     }
+//     template <typename... Args>
+//         requires (std::is_invocable_v<F, Args...> and QualifiedBy<F,Qualifier::NoExcept>)
+//     auto operator()(Args&&... args) noexcept
+//     {
+//         try {
+//             return std::invoke(func, std::forward<Args>(args)...);
+//         }
+//         catch (const std::exception& e) {
 
-    //     template <typename... Args>
-    //         requires (std::is_invocable_v<F, Args...> and QualifiedBy<F,Qualifier::NoExcept>)
-    //     auto operator()(Args&&... args) noexcept
-    //     {
-    //         try { 
-    //             return std::invoke(func, std::forward<Args>(args)...);
-    //         }
-    //         catch (const std::exception& e) {
-                
-    //         }
-    //         catch (...) {
-    //             // Handle other exceptions
-    //         }
-    //     }
+//         }
+//         catch (...) {
+//             // Handle other exceptions
+//         }
+//     }
 
-    // };
+// };
 
+// template<MemberFunction auto f>
+// struct Inner<f> {
 
-            // template<MemberFunction auto f>
-        // struct Inner<f> {
+//     template<typename ...A>
+//     static R execute(std::any& a, A&&...) noexcept(is_noexcept())
+//         requires (std::is_invocable_r_v<R, F, A...> )
+//     {
+//         return t(std::forward<A>(args)...);
+//     }
 
-        //     template<typename ...A>
-        //     static R execute(std::any& a, A&&...) noexcept(is_noexcept()) 
-        //         requires (std::is_invocable_r_v<R, F, A...> )       
-        //     {   
-        //         return t(std::forward<A>(args)...);
-        //     }
+//     template<typename ...A>
+//     R execute(std::any& a, A&&...) const noexcept(is_noexcept())
+//         requires (std::is_invocable_r_v<R, F, A...> && !volatile_required)
+//     {
+//         return f(std::forward<A>(args)...);
+//     }
 
-        //     template<typename ...A>
-        //     R execute(std::any& a, A&&...) const noexcept(is_noexcept()) 
-        //         requires (std::is_invocable_r_v<R, F, A...> && !volatile_required)       
-        //     {   
-        //         return f(std::forward<A>(args)...);
-        //     }
+//     template<typename ...A>
+//     R execute(std::any& a, A&&...) volatile noexcept(is_noexcept())
+//         requires (std::is_invocable_r_v<R, F, A...> && !const_required)
+//     {
+//         return f(std::forward<A>(args)...);
+//     }
 
-        //     template<typename ...A>
-        //     R execute(std::any& a, A&&...) volatile noexcept(is_noexcept()) 
-        //         requires (std::is_invocable_r_v<R, F, A...> && !const_required)       
-        //     {   
-        //         return f(std::forward<A>(args)...);
-        //     }
+//     template<typename ...A>
+//     R execute(std::any& a, A&&...)  noexcept(is_noexcept())
+//         requires
+//             (std::is_invocable_r_v<R, F, A...>
+//                 && !(const_required || !volatile_required))
+//     {
+//         return t(std::forward<A>(args)...);
+//     }
+// };
 
-        //     template<typename ...A>
-        //     R execute(std::any& a, A&&...)  noexcept(is_noexcept()) 
-        //         requires 
-        //             (std::is_invocable_r_v<R, F, A...> 
-        //                 && !(const_required || !volatile_required))       
-        //     {   
-        //         return t(std::forward<A>(args)...);
-        //     }
-        // };
+#endif // NDOF_OS_CALLABLE_TRAITS_PROXY_HPP

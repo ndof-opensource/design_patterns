@@ -34,6 +34,8 @@ namespace ndof {
 
     // TODO: Add checks for nothrow constructible and nothrow move constructible.
     //       I.E., If T has a nothrow constructor, then CopyableUniquePtr<T> should be nothrow constructible.
+
+    // TODO: make sure this type supports allocator.
     template<typename T>
     struct CopyableUniquePtr {
         std::unique_ptr<T> ptr;

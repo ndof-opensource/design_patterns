@@ -91,6 +91,8 @@ namespace ndof
         
         // Define a deleter that uses the allocator
         template <typename T>
+        // TODO: This will have a unique_ptr to an allocator.
+        // TODO: Add the nocopyconstructible wrapper.
         struct Delete {
             
             using AllocTraits = std::allocator_traits<Alloc<T>>;

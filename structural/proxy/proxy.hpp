@@ -158,6 +158,7 @@ namespace ndof
         }
 
         // LOOKEE HERE ------------------------------------------------------------------------------------<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+        // TODO: Make the constructor allocator aware.
         template<typename T, typename Allocator>
         constexpr explicit Proxy(T&& object, MemberFunctionPtr auto f, Allocator& alloc) noexcept 
             // TODO: requires (std::is_nothrow_move_constructible_v<>)

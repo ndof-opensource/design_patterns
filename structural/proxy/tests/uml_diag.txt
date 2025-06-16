@@ -4,8 +4,7 @@
 namespace ndof {
 
 class Proxy<F, AllocDummy, const_required, volatile_required, Alloc> {
-    + return_type : typename CallableTraits<F>::ReturnType
-    + arg_types : typename CallableTraits<F>::ArgTypes
+ 
     + is_noexcept() : consteval static bool
     + is_void_return() : consteval static bool
     - inner : similarly_qualified_t<std::any>

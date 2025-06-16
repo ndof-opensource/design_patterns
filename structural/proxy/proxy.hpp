@@ -17,10 +17,44 @@
 #include <variant>
 #include <utility>
 
+// TODO: [6/16/25] use std::common_type to allow any type to be cast to a wrapper of that type.
+//                 noncopyconstructible wrapper that can be used to store any type in a std::any.
+//                 
+
 // namespace ndof {
 
 // // TODO: add support for exception handling callbacks on enter/exit.
 // // TODO: Define a class that defines the callback object interface requirements alternatively.
+// // TODO: Check alignment requirement, to make sure it doesn't exceed the size of the SBO space.
+// //       Alignment ≤ SBO buffer alignment (usually 16)
+
+
+// TODO: Verify this AI code and put in a utilities header.
+namespace ndof {
+
+    // TODO: Add checks for nothrow constructible and nothrow move constructible.
+    //       I.E., If T has a nothrow constructor, then CopyableUniquePtr<T> should be nothrow constructible.
+    template<typename T>
+    struct CopyableUniquePtr {
+        std::unique_ptr<T> ptr;
+
+        CopyableUniquePtr(std::unique_ptr<T> p) : ptr(std::move(p)) {}
+
+        CopyableUniquePtr(const CopyableUniquePtr& other) 
+            : ptr(other.ptr ? std::make_unique<T>(*other.ptr) : nullptr) {}
+
+        CopyableUniquePtr& operator=(const CopyableUniquePtr& other) {
+            if (this != &other) {
+                ptr = other.ptr ? std::make_unique<T>(*other.ptr) : nullptr;
+            }
+            return *this;
+        }
+
+        // Also allow move for efficiency
+        CopyableUniquePtr(CopyableUniquePtr&&) noexcept = default;
+        CopyableUniquePtr& operator=(CopyableUniquePtr&&) noexcept = default;
+    };
+}
 
 // TODO: in callable_type_generator.hpp, from line 264, the types defined should be functions, not function pointers.
 namespace ndof

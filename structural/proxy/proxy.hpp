@@ -36,6 +36,13 @@ namespace ndof {
     //       I.E., If T has a nothrow constructor, then CopyableUniquePtr<T> should be nothrow constructible.
 
     // TODO: make sure this type supports allocator.
+    // TODO: will have to add the deleter and also use the constructor of std::unique_ptr that takes a deleter
+    //       and should rebind the unique pointers allocator type to the allocator type passed in.
+    // TODO: allocators should not move or be copied into the target instance.  
+    // TODO: if the allocator pointer is different across moves, copies or assignments, then space should be allocated for the new object 
+    //       using the new type's allocator and the old object should be destroyed using the old allocator.
+    //       I.E., allocators stay with their respective objects and are not shared across copies or moves.
+    //       This is to ensure that the allocator is always valid and can be used to deallocate the object.
     template<typename T>
     struct CopyableUniquePtr {
         std::unique_ptr<T> ptr;

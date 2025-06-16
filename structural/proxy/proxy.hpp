@@ -68,7 +68,7 @@ namespace ndof
             }
         };
 
-        template<MemberFunctionPtr auto mf, >
+        template<MemberFunctionPtr auto mf >
         struct Inner<mf> {
             using typename CallableTraits<decltype(mf)>::ClassType;
 

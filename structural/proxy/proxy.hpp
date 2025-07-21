@@ -19,9 +19,7 @@
 
 // TODO: [6/16/25] use std::common_type to allow any type to be cast to a wrapper of that type.
 //                 noncopyconstructible wrapper that can be used to store any type in a std::any.
-//                 
 
-// namespace ndof {
 
 // // TODO: add support for exception handling callbacks on enter/exit.
 // // TODO: Define a class that defines the callback object interface requirements alternatively.
@@ -69,9 +67,11 @@ namespace ndof {
 namespace ndof
 {
 
-    template <Function F, typename AllocDummy, bool const_required = false, bool volatile_required = false, template <typename> typename Alloc = std::allocator>
-    class Proxy
+    template <Function F >
+    struct Proxy
     {
+    private:
+    
     public:
         using return_type = typename CallableTraits<F>::ReturnType;
         using arg_types = typename CallableTraits<F>::ArgTypes;
@@ -81,19 +81,9 @@ namespace ndof
         consteval static bool is_void_return() { return std::is_void_v<return_type>; }
 
     private:
-        // TODO: Promote to CallableTraits.
+ 
 
-        template <typename T>
-        using add_const_if_required = std::conditional_t<const_required, std::add_const_t<T>, T>;
-
-        template <typename T>
-        using add_volatile_if_required = std::conditional_t<volatile_required, std::add_volatile_t<T>, T>;
-
-        template <typename T>
-        using similarly_qualified_t = add_volatile_if_required<add_const_if_required<T>>;
-
-        using qualified_any = similarly_qualified_t<std::any>;
-        qualified_any inner;
+        std::any inner;
 
         template <auto f, typename ...AllocatorType>
         requires (sizeof...(AllocatorType)<2)
@@ -127,6 +117,7 @@ namespace ndof
 
         // TODO: Use NDoF GenerateFunctionPointerTraits to generate the function pointer type.
         // TODO: Fix this. it's broken.  F is a Function, so we'll need to use the other parameters too.
+        //       Don't forget about const and volatile pointer qualifiers.
         using ExecutePtr = ndof::as_function_ptr_t<F>;
         ExecutePtr execute_ptr;
 
@@ -137,6 +128,7 @@ namespace ndof
         template <typename T>
         // TODO: This will have a unique_ptr to an allocator.
         // TODO: Add the nocopyconstructible wrapper.
+        // TODO: Make exception proof.
         struct Delete {
             
             using AllocTraits = std::allocator_traits<Alloc<T>>;

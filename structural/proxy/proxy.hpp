@@ -41,9 +41,12 @@ namespace ndof {
     //       using the new type's allocator and the old object should be destroyed using the old allocator.
     //       I.E., allocators stay with their respective objects and are not shared across copies or moves.
     //       This is to ensure that the allocator is always valid and can be used to deallocate the object.
-    template<typename T>
+
+    // TODO: support the ability to pass a deleter in addition to an allocator, as with (6): 
+    //    https://en.cppreference.com/w/cpp/memory/shared_ptr/shared_ptr.html
+    template<typename T, typename Alloc = std::allocator<T>>
     struct CopyableUniquePtr {
-        std::unique_ptr<T> ptr;
+        std::unique_ptr<T, Alloc> ptr;
 
         CopyableUniquePtr(std::unique_ptr<T> p) : ptr(std::move(p)) {}
 
@@ -67,7 +70,7 @@ namespace ndof {
 namespace ndof
 {
 
-    template <Function F >
+    template <Function F>
     struct Proxy
     {
     private:
@@ -85,19 +88,23 @@ namespace ndof
 
         std::any inner;
 
+        // TODO: consider deleter.
         template <auto f, typename ...AllocatorType>
         requires (sizeof...(AllocatorType)<2)
         struct Inner;
 
         template <StandaloneFunction auto f>
+        // todo: requires f was an r-value?
         struct Inner<f>
         {
 
+            using ReturnType = decltype(std::forward<decltype(f)>(std::forward<A>(args)...));
+
             template <typename... A>
-            static return_type execute(qualified_any& a, A &&...args) noexcept(is_noexcept())
+            static decltype(auto)  execute(qualified_any& a, A &&...args) noexcept(is_noexcept())
                 requires(std::is_invocable_r_v<return_type, F, A...>)
             {
-                return f(std::forward<A>(args)...);
+ 
             }
         };
 
@@ -106,7 +113,7 @@ namespace ndof
             using typename CallableTraits<decltype(mf)>::ClassType;
 
             template<typename ...A>
-            static return_type execute(qualified_any& a, A&&... args) noexcept(is_noexcept())
+            static decltype(auto) execute(qualified_any& a, A&&... args) noexcept(is_noexcept())
                 requires (std::is_invocable_r_v<return_type, F,  A...> )
             {
 
@@ -145,20 +152,26 @@ namespace ndof
         };
 
     public:
+        // TODO: versions that take allocator and deleter.
+        template<typename T>
+        constexpr explicit Proxy(T&& functor_obj, Alloc& a) noexcept {
+
+        }
+
+        template<typename ...A>
+        return_type operator(this auto&& self, A... a) noexcept(is_no_except())
+        require (std::is_invocable_r_v<return_type,ExecutePtr,A...>) {
+            std::invoke(ExecutePtr,std::forward<A>(a));
+        }       
+
         constexpr explicit Proxy(StandaloneFunction auto f) noexcept : execute_ptr(&Inner<f>::execute)  
         {
+            
         }
 
-        // LOOKEE HERE ------------------------------------------------------------------------------------<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-        // TODO: Make the constructor allocator aware.
-        template<typename T, typename Allocator>
-        constexpr explicit Proxy(T&& object, MemberFunctionPtr auto f, Allocator& alloc) noexcept 
-            // TODO: requires (std::is_nothrow_move_constructible_v<>)
-                : execute_ptr(&Inner<f>::execute),  
-        {
 
-        }
-
+        // TODO: r-value?
+      
         template <typename... A>
         return_type operator()(auto &&...args) noexcept(is_noexcept())
             requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>)
@@ -190,254 +203,3 @@ namespace ndof
         // {
         // }
     };
-
-    template <typename T, typename Alloc>
-    using ReboundAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<T>;
-
-    // TODO: CallableTraits that takes instances.
-template<
-    typename T,
-    typename Dummy,
-    bool const_required = std::is_const_v<std::remove_reference_t<std::decay_t<T>>>,
-    bool volatile_required = std::is_volatile_v<std::remove_reference_t<std::decay_t<T>>>,
-    template<typename> typename PassedAlloc = std::allocator
->
-
-Proxy(T&& object, auto f, PassedAlloc<Dummy>& alloc) ->
-    Proxy<
-        decltype(f),
-        int,
-        std::is_const_v<std::remove_reference_t<std::decay_t<T>>>,
-        std::is_volatile_v<std::remove_reference_t<std::decay_t<T>>>,
-        PassedAlloc
-    >;
-
-}
-
-
-
-// template<typename ...A>
-// R operator()(A&&... args) const noexcept(QualifiedBy<F, Qualifier::NoExcept>)
-//     requires std::is_invocable_v<F, A...>
-//     -> std::invoke_result_t<F, A...>
-// {
-//     auto x = []() noexcept{};
-//     if (noexcept(x)) {
-
-//     }
-
-//     if constexpr (QualifiedBy<F, Qualifier::NoExcept>) {
-//         return std::invoke(callable, std::forward<A>(args)...);
-//     } else {
-//         try {
-//             return std::invoke(callable, std::forward<A>(args)...);
-//         }
-//         } catch (...) {
-
-//             if (std::current_exception()) {
-//                 try {
-//                     std::rethrow_exception(std::current_exception());
-//                 } catch (const std::exception& e) {
-//                     throw bad_proxy_call(e.what());
-//                 } catch (...) {
-//                     // TODO: Bundle the caught exception into the bad_proxy_call exception.
-//                     throw bad_proxy_call("Unknown exception in Proxy call");
-//                 }
-//             }
-//             throw bad_proxy_call("Unknown exception in Proxy call");
-//         }
-//     }
-// }
- 
-
-// TODO: add support for const, volatile, const volatile qualifiers
-// TODO: add support for variadic functions.
-// TODO: add support for noexcept
-
-// // Function pointer
-// template <FunctionPtr F>
-// class Proxy<F> {
-//     std::optional<F> func_ptr;
-//     std::weak_ptr<F> func_wp;
-
-// public:
-//     explicit Proxy(F f) : func_ptr(f) {}
-//     explicit Proxy(std::weak_ptr<F> wp) : func_wp(std::move(wp)) {}
-
-//     template <typename... Args>
-//     auto operator()(Args&&... args) const
-//         -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
-//     {
-//         if (func_ptr && *func_ptr) {
-//             return std::invoke(*func_ptr, std::forward<Args>(args)...);
-//         }
-//         if (auto sp = func_wp.lock()) {
-//             return std::invoke(*sp, std::forward<Args>(args)...);
-//         }
-//         return std::unexpected(bad_proxy_call("Proxy: callable target is expired or uninitialized"));
-//     }
-
-//     bool is_valid() const {
-//         return func_ptr.has_value() || !func_wp.expired();
-//     }
-// };
-
-// // Functor (callable object with operator())
-// template <Functor F>
-// class Proxy<F> {
-//     std::optional<std::reference_wrapper<F>> ref;
-//     std::weak_ptr<F> wp;
-
-// public:
-//     explicit Proxy(F& f) : ref(std::ref(f)) {}
-//     explicit Proxy(std::weak_ptr<F> wp) : wp(std::move(wp)) {}
-
-//     template <typename... Args>
-//     auto operator()(Args&&... args) const
-//         -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
-//     {
-//         if (ref) {
-//             return std::invoke(ref->get(), std::forward<Args>(args)...);
-//         }
-//         if (auto sp = wp.lock()) {
-//             return std::invoke(*sp, std::forward<Args>(args)...);
-//         }
-//         return std::unexpected(bad_proxy_call("Proxy: callable target is expired or uninitialized"));
-//     }
-
-//     bool is_valid() const {
-//         return ref.has_value() || !wp.expired();
-//     }
-// };
-
-// // std::function
-// template <StdFunction F>
-// class Proxy<F> {
-//     std::optional<F> fn;
-
-// public:
-//     explicit Proxy(F f) : fn(std::move(f)) {}
-
-//     template <typename... Args>
-//     auto operator()(Args&&... args) const
-//         -> std::expected<std::invoke_result_t<F, Args...>, bad_proxy_call>
-//     {
-//         if (!fn.has_value()) {
-//             return std::unexpected(bad_proxy_call("std::function proxy target uninitialized"));
-//         }
-
-//         try {
-//             return std::invoke(*fn, std::forward<Args>(args)...);
-//         } catch (const std::bad_function_call& e) {
-//             return std::unexpected(bad_proxy_call("std::function call to empty target"));
-//         }
-//     }
-
-//     bool is_valid() const {
-//         return fn.has_value();
-//     }
-// };
-
-// // helper function to extract class type from member function pointer
-// template <typename T>
-// struct memfn_class;
-
-// template <typename R, typename C, typename... Args>
-// struct memfn_class<R (C::*)(Args...)> {
-//     using type = C;
-// };
-
-// template <typename R, typename C, typename... Args>
-// struct memfn_class<R (C::*)(Args...) const> {
-//     using type = const C;
-// };
-
-// // Member function pointer
-// template <MemberFunctionPtr F>
-// class Proxy<F> {
-// public:
-//     using ObjectType = typename memfn_class<F>::type;
-
-// private:
-//     F member_ptr;
-//     ObjectType* object_ptr;
-
-// public:
-//     Proxy(F fn, ObjectType* obj) : member_ptr(fn), object_ptr(obj) {}
-
-//     template <typename... Args>
-//     auto operator()(Args&&... args) const
-//         -> std::expected<std::invoke_result_t<F, ObjectType*, Args...>, bad_proxy_call>
-//     {
-//         if (object_ptr) {
-//             return std::invoke(member_ptr, object_ptr, std::forward<Args>(args)...);
-//         }
-//         return std::unexpected(bad_proxy_call("Member function proxy object is null"));
-//     }
-
-//     bool is_valid() const {
-//         return object_ptr != nullptr;
-//     }
-// };
-
-// } // namespace ndof
-
-//     template <typename... Args>
-//         requires (std::is_invocable_v<F, Args...> and !QualifiedBy<F,Qualifier::NoExcept>)
-//     auto operator()(Args&&... args)
-//     {
-//         return std::invoke(func, std::forward<Args>(args)...);
-//     }
-
-//     template <typename... Args>
-//         requires (std::is_invocable_v<F, Args...> and QualifiedBy<F,Qualifier::NoExcept>)
-//     auto operator()(Args&&... args) noexcept
-//     {
-//         try {
-//             return std::invoke(func, std::forward<Args>(args)...);
-//         }
-//         catch (const std::exception& e) {
-
-//         }
-//         catch (...) {
-//             // Handle other exceptions
-//         }
-//     }
-
-// };
-
-// template<MemberFunction auto f>
-// struct Inner<f> {
-
-//     template<typename ...A>
-//     static R execute(std::any& a, A&&...) noexcept(is_noexcept())
-//         requires (std::is_invocable_r_v<R, F, A...> )
-//     {
-//         return t(std::forward<A>(args)...);
-//     }
-
-//     template<typename ...A>
-//     R execute(std::any& a, A&&...) const noexcept(is_noexcept())
-//         requires (std::is_invocable_r_v<R, F, A...> && !volatile_required)
-//     {
-//         return f(std::forward<A>(args)...);
-//     }
-
-//     template<typename ...A>
-//     R execute(std::any& a, A&&...) volatile noexcept(is_noexcept())
-//         requires (std::is_invocable_r_v<R, F, A...> && !const_required)
-//     {
-//         return f(std::forward<A>(args)...);
-//     }
-
-//     template<typename ...A>
-//     R execute(std::any& a, A&&...)  noexcept(is_noexcept())
-//         requires
-//             (std::is_invocable_r_v<R, F, A...>
-//                 && !(const_required || !volatile_required))
-//     {
-//         return t(std::forward<A>(args)...);
-//     }
-// };
-
-#endif // NDOF_OS_CALLABLE_TRAITS_PROXY_HPP

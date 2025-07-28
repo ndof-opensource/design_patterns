@@ -158,10 +158,11 @@ namespace ndof
 
         }
 
+        // NOTE: Added self to line 165.
         template<typename ...A>
         return_type operator(this auto&& self, A... a) noexcept(is_no_except())
         require (std::is_invocable_r_v<return_type,ExecutePtr,A...>) {
-            std::invoke(ExecutePtr,std::forward<A>(a));
+            return std::invoke(ExecutePtr, self, std::forward<A>(a));
         }       
 
         constexpr explicit Proxy(StandaloneFunction auto f) noexcept : execute_ptr(&Inner<f>::execute)  

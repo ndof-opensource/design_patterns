@@ -173,31 +173,31 @@ namespace ndof
 
         // TODO: r-value?
       
-        template <typename... A>
-        return_type operator()(auto &&...args) noexcept(is_noexcept())
-            requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>)
-        {
-            return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
-        }
+        // template <typename... A>
+        // return_type operator()(auto &&...args) noexcept(is_noexcept())
+        //     requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>)
+        // {
+        //     return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
+        // }
 
-        template <typename... A>
-        return_type operator()(auto &&...args) const noexcept(is_noexcept()) 
-            requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>)
-        {
-            return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
-        }
+        // template <typename... A>
+        // return_type operator()(auto &&...args) const noexcept(is_noexcept()) 
+        //     requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>)
+        // {
+        //     return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
+        // }
 
-        template <typename... A>
-        return_type operator()(auto &&...args) volatile noexcept(is_noexcept())
-            requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>) {
-                return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
-        }
+        // template <typename... A>
+        // return_type operator()(auto &&...args) volatile noexcept(is_noexcept())
+        //     requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>) {
+        //         return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
+        // }
 
-        template <typename... A>
-        return_type operator()(auto &&...args) const volatile noexcept(is_noexcept())
-            requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>) {
-                return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
-        }
+        // template <typename... A>
+        // return_type operator()(auto &&...args) const volatile noexcept(is_noexcept())
+        //     requires(std::is_invocable_r_v<return_type, F, A...> && StandaloneFunction<F>) {
+        //         return std::invoke(execute_ptr, inner, std::forward<A>(args)...);
+        // }
 
         // // TODO: Implement.
         // Alloc get_allocator()

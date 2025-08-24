@@ -3,69 +3,97 @@
 #include <memory>
 #include <concepts>
 #include <type_traits>
+#include <memory_resource>
 
 template <typename T>
-concept HasCloneMethod = requires(const T& obj) {
-    { obj.clone() } -> std::convertible_to<std::unique_ptr<T>>;
+concept HasSimpleClone = requires(const T& obj) {
+    { obj.clone() } -> std::same_as<T>;
 };
 
-template <typename T>
-concept IsCloneable = std::copy_constructible<std::remove_cvref_t<T>> ||
-                      HasCloneMethod<std::remove_cvref_t<T>>;
+template <typename T, typename Alloc>
+concept HasAllocatorAwareClone = requires(const T& obj, Alloc& alloc) {
+    { obj.clone(alloc) } -> std::same_as<T*>;
+};
 
+template<typename T, typename Alloc>
+concept HasAllocatorConstructor = std::is_constructible_v<T, const T&, const Alloc&>;
+
+// concept to hide Alloc parameter from IsCloneable
+template <typename T>
+concept IsAllocatorCloneable = HasAllocatorAwareClone<T, std::allocator<T>> ||
+                               HasAllocatorConstructor<T, std::allocator<T>>;
+
+template <typename T>
+concept HasPlacementClone = requires(const T& obj, void* ptr) {
+    { obj.clone(ptr) } -> std::same_as<T*>;
+};
+
+
+template <typename T>
+concept IsCloneable = std::is_copy_constructible_v<std::remove_cvref_t<T>> ||
+                      HasSimpleClone<std::remove_cvref_t<T>> ||
+                      IsAllocatorCloneable<std::remove_cvref_t<T>> ||
+                      HasPlacementClone<std::remove_cvref_t<T>>;
+
+template <IsCloneable T>
 class Prototype {
 private:
     
-    // Internal, private, abstract interface to define the requirements and 
-    // capabilities of the prototype, i.e. the ability to clone()
-    class HolderBase {
-    public:
-        virtual ~HolderBase() = default;
-        virtual std::unique_ptr<HolderBase> clone() const = 0;
-    };
-
-    // Internal, private, templated concrete implementation of HolderBase 
-    // to hold the actual object to be cloned and implement the clone function
-    template <typename T>
-    class Holder : public HolderBase {
-    private:
-        T held_object;
+private:
+    T held_object;
     
-    public:
-        Holder(const T& obj) : held_object(obj) {}
-
-        Holder(T&& obj) : held_object(std::move(obj)) {}
-
-        std::unique_ptr<HolderBase> clone() const override {
-            if constexpr (HasCloneMethod<T>) {
-                // prefer to use class's clone() method if it exists
-                // then move cloned object into a Holder<T>
-                std::unique_ptr<T> cloned_user_obj_ptr = held_object.clone();
-                return std::make_unique<Holder<T>>(std::move(*cloned_user_obj_ptr));
-            } else {
-                // otherwise, fall back to copy constructor
-                return std::make_unique<Holder<T>>(held_object);
-            }
-        }
-    };
-
-    // pointer to the implementation of the internal Holder object
-    std::unique_ptr<HolderBase> pimpl;
-
 public:
-    // Constructor is constrained to only accept types that are IsCloneable
-    template <typename T>
-        requires IsCloneable<T>
-    Prototype(const T& obj) : pimpl(std::make_unique<Holder<T>>(obj)) {}
+    explicit Prototype(const T& obj) : held_object(obj) {}
 
-    // Prototype's clone() function simply invokes the Holder implementation's
-    // clone() function
-    Prototype clone() const {
-        return Prototype(pimpl->clone());
+    explicit Prototype(T&& obj) : held_object(std::move(obj)) {}
+
+    // Simple, Value Clone: takes no arguments, returns a copy of T
+    T clone() const {
+        if constexpr (HasSimpleClone<T>) {
+            // prefer to use class's clone() method if it exists
+            return held_object.clone();
+        } else {
+            // otherwise, fall back to copy constructor
+            return held_object;
+        }
     }
 
-private:
-    // Internal, helper constructor to create new Prototype wrapper around new 
-    // cloned Holder object during cloning process
-    Prototype(std::unique_ptr<HolderBase> ptr) : pimpl(std::move(ptr)) {}
+    // Allocator-aware Clone: use the passed allocator, return a pointer to T
+    template <typename Alloc>
+    T* clone(const Alloc& alloc) const
+        requires IsAllocatorCloneable<T>
+    {
+        if constexpr (HasAllocatorAwareClone<T, Alloc>) {
+            // Prioritize using object's allocator-aware clone method, if it exists
+            return held_object.clone(alloc);
+        } else {
+            // Otherwise, fall back to using allocator-aware copy constructor
+            using traits = std::allocator_traits<Alloc>;
+            T* ptr = traits::allocate(alloc, 1);
+            try {
+                // Pass the allocator to T's constructor
+                traits::construct(alloc, ptr, held_object, alloc);
+                return ptr;
+            } catch (...) {
+                // Catch any exception thrown by the constructor and deallocate
+                traits::deallocate(alloc, ptr, 1);
+                throw;
+            }
+        }
+    }
+
+    // Placement-stype clone method
+    // requires a placement-style clone method in object, or copy constructor 
+    // to use placement new
+    T* clone(void* ptr) const
+        requires HasPlacementClone<T> || std::is_copy_constructible_v<T>
+    {
+        if constexpr (HasPlacementClone<T>) {
+            // Prioritize object's own placement clone method, if it exists
+            return held_object.clone(ptr);
+        } else {
+            // Otherwise, fall back to using placement new with copy constructor
+            return new(ptr) T(held_object);
+        }
+    }
 };

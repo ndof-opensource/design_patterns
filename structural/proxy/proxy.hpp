@@ -100,6 +100,7 @@ namespace ndof
     {
     private:
         // TODO: handle is_nothrow_convertible for arguments?
+        // TODO: check noexcept for all methods declared here.
 
         using ArgTypes = typename CallableTraits<F>::ArgTypes;
         using ReturnType = typename CallableTraits<F>::ReturnType;
@@ -141,6 +142,35 @@ namespace ndof
                return std::make_unique<InnerFunction>(func);
            }
        };
+
+        // TODO: member function, but *not* operator().
+        // TODO: The default operator() for functors will 
+        //        require one less member pointer to store.
+
+        template<MemberFunctionPtr auto mfp, typename... A>
+            requires std::same_as<
+                typename CallableTraits<decltype(mfp)>::ArgTypes, 
+                std::tuple<A...>>
+        struct InnerMemberFunction : Inner<A...> {
+            T obj;
+            ReturnType (T::*mfp)(A...);
+
+            using C = typename CallableTraits<decltype(mfp)>::ClassType;
+
+            // TODO: check for noexcept.
+            InnerMemberFunction(C auto&& t)
+                : obj(std::forward<T>(t)), mfp(mfp_) {
+                    // TODO: implement.
+                }
+
+            ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {
+                if constexpr (is_void_return()) {
+                    (obj.*mfp)(std::forward<A>(a)...);
+                } else {
+                    return (obj.*mfp)(std::forward<A>(a)...);
+                }
+            }
+        };
 
     public:  
  

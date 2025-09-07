@@ -80,14 +80,13 @@ namespace ndof {
     template<class A_provided, class A_callee>
     concept AllocCompatibleFor =
         requires { typename rebind_t<A_provided,  A_callee>; } &&
-        std::is_same_v<rebind_t<A_provided, A_callee>> &&
-        std::constructible_from<rebind_t<A_provided, A_callee>
+        std::is_same_v<rebind_t<A_provided, A_callee>, rebind_t<A_callee, A_provided>> &&
+        std::constructible_from<rebind_t<A_provided, A_callee>, rebind_t<A_callee, A_provided>>;
 }
 
 // TODO: in callable_type_generator.hpp, from line 264, the types defined should be functions, not function pointers.
 namespace ndof
 {
-
     template<typename TestFn, typename F>
     concept ParameterCompatible = 
         Callable<F> &&  
@@ -136,7 +135,9 @@ namespace ndof
                }
            }
 
+           // TODO: Refer to clone. add deleter to this unique_ptr.
            std::unique_ptr<InnerBase> clone() const override {
+                // TODO: Add allocator support.
                return std::make_unique<InnerFunction>(func);
            }
        };
@@ -162,12 +163,55 @@ namespace ndof
             // TODO: Implement.
         }
              
+        template<
+            typename T, 
+            AllocCompatibleFor<Alloc> A>
+        Proxy(T&& t,  A alloc = A{})
+            // TODO: should check the operator() of T is compatible with Fn.
+            requires requires {
+                &T::operator(); } && 
+                ParameterCompatible<Fn, decltype(&T::operator())> {
+            // TODO: Implement.
+        }
+
+        // TODO: Copy constructor.
+        template<AllocCompatibleFor<Alloc> A>
+        Proxy(const Proxy<Fn,A>& other) {
+            // TODO: Implement.
+        }
+
+        // TODO: Move constructor.
+        template<AllocCompatibleFor<Alloc> A>
+        Proxy(Proxy<Fn,A>&& other) {
+            // TODO: Implement.
+        }
+
+        // TODO: Copy assignment operator.
+        template<AllocCompatibleFor<Alloc> A>
+        Proxy<Fn,A>& operator=(const Proxy<Fn,A>& other) {
+            // TODO: Implement.
+        }
+
+        // TODO: Move assignment operator.
+        template<AllocCompatibleFor<Alloc> A>
+        Proxy<Fn,A>& operator=(Proxy<Fn,A>&& other) {
+            // TODO: Implement.
+        }
+
+        // TODO: Destructor.
+        ~Proxy() {
+            // TODO: Implement.
+        }
+
+
+
         template<typename ...A>
         return_type operator(this auto&& self, A... a) & noexcept(is_noexcept())  
         // TODO: Add constraints.
         {
             // TODO: Implement.
         }   
+
 
         // TODO: Implement all the other constructors and assignment operators.
 

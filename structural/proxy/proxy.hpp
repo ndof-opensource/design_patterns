@@ -68,15 +68,10 @@ namespace ndof {
     //     CopyableUniquePtr& operator=(CopyableUniquePtr&&) noexcept = default;
     // };
 
-    // Helper alias for readability
+    
     template<class A, class T>
     using rebind_t = typename std::allocator_traits<A>::template rebind_alloc<T>;
-
-    // --- Compile-time compatibility concept ---
-    // "A_user is compatible with A_callee for T" iff:
-    //   - both are rebindable to T
-    //   - the rebound types are the same
-    //   - the rebound type is constructible from the original (avoids dead-end rebinds)
+ 
     template<class A_provided, class A_callee>
     concept AllocCompatibleFor =
         requires { typename rebind_t<A_provided,  A_callee>; } &&
@@ -143,23 +138,22 @@ namespace ndof
            }
        };
 
-        // TODO: member function, but *not* operator().
-        // TODO: The default operator() for functors will 
-        //        require one less member pointer to store.
+    
+
 
         template<MemberFunctionPtr auto mfp, typename... A>
             requires std::same_as<
                 typename CallableTraits<decltype(mfp)>::ArgTypes, 
                 std::tuple<A...>>
         struct InnerMemberFunction : Inner<A...> {
-            T obj;
-            ReturnType (T::*mfp)(A...);
+            // TODO: Handle T that is allocator-aware.
+            T obj; 
 
             using C = typename CallableTraits<decltype(mfp)>::ClassType;
 
             // TODO: check for noexcept.
-            InnerMemberFunction(C auto&& t)
-                : obj(std::forward<T>(t)), mfp(mfp_) {
+            InnerMemberFunction(C auto&& t, Alloc alloc)
+                : obj(std::forward<T>(t))  {
                     // TODO: implement.
                 }
 

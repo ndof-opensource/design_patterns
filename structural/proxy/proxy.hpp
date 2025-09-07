@@ -96,7 +96,7 @@ namespace ndof
         std::is_convertible_v<typename CallableTraits<TestFn>::ArgTypes,   typename CallableTraits<F>::ArgTypes>;
 
     template <Function Fn, 
-        typename Alloc = std::allocator<Fn>
+        typename Alloc = std::allocator<Fn>>
     struct Proxy
     {
     private:

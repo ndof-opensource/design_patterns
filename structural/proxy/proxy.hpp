@@ -159,7 +159,7 @@ namespace ndof
             typename R, 
             typename ...Args, 
             AllocCompatibleFor<Alloc> A>
-        Proxy(T&& t, R(*mfp)(Args...), A alloc = A{}){
+        Proxy(T&& t, R(*T::mfp)(Args...), A alloc = A{}){
             // TODO: Implement.
         }
              

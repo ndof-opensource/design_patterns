@@ -82,15 +82,8 @@ namespace ndof {
 // TODO: in callable_type_generator.hpp, from line 264, the types defined should be functions, not function pointers.
 namespace ndof
 {
-    template<typename TestFn, typename F>
-    concept ParameterCompatible = 
-        Callable<F> &&  
-        // is TestFn convertible to F.
-        std::is_convertible_v<typename CallableTraits<TestFn>::ReturnType, typename CallableTraits<F>::ReturnType> &&
-        std::is_convertible_v<typename CallableTraits<TestFn>::ArgTypes,   typename CallableTraits<F>::ArgTypes>;
 
-    template <Function Fn, 
-        typename Alloc = std::allocator<Fn>>
+    template <Function Fn, typename Alloc = std::allocator<Fn>>
     struct Proxy
     {
     private:
@@ -99,72 +92,64 @@ namespace ndof
 
         using ArgTypes = typename CallableTraits<F>::ArgTypes;
         using ReturnType = typename CallableTraits<F>::ReturnType;
-        using Members = std::tuple<Fn*, std::any, Alloc>
+        using Members = std::tuple<std::any, Alloc>
 
         mutable Members members;
- 
-       consteval static bool is_noexcept() { return QualifiedBy<F, Qualifier::NoExcept>; }
-       consteval static bool is_void_return() { return std::is_void_v<ReturnType>; }
 
-       template<typename F, typename ...A>
-       consteval static bool has_operator_parens() { 
+        consteval static bool is_noexcept() { return QualifiedBy<Fn, Qualifier::NoExcept>; }
+        consteval static bool is_void_return() { return std::is_void_v<ReturnType>; }
+
+        template<typename F, typename ...A>
+        consteval static bool has_operator_parens() { 
             return requires(F f, A... a) { f(a...); }; 
         }
 
-       template<typename... A>
-       struct Inner {
-           virtual ~Inner() = default;
-           virtual ReturnType invoke(A&&...) noexcept(is_noexcept()) = 0;
-           // TODO: Use clone.
-           virtual std::unique_ptr<Inner> clone() const = 0;
-       };
+        template<typename... A>
+        struct Inner {
+            virtual ~Inner() = default;
+            virtual ReturnType invoke(A&&...) noexcept(is_noexcept()) = 0;
 
-       template<typename... A>
-       struct InnerFunction : Inner<A...> {
-           InnerFunction(Fn f) {}
-           
-           ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {
-               if constexpr (is_void_return()) {
-                   func(std::forward<A>(a)...);
-               } else {
-                   return func(std::forward<A>(a)...);
-               }
-           }
+            // TODO: add clone method that takes an allocator and returns a new instance of Inner with the same type.
 
-           // TODO: Refer to clone. add deleter to this unique_ptr.
-           std::unique_ptr<InnerBase> clone() const override {
-                // TODO: Add allocator support.
-               return std::make_unique<InnerFunction>(func);
-           }
-       };
+        };
 
-    
+        // TODO: Test noexcept propagation in mismatched types.
 
+        template<auto f, typename... A>
+        struct InnerCallable;
 
-        template<MemberFunctionPtr auto mfp, typename... A>
-            requires std::same_as<
-                typename CallableTraits<decltype(mfp)>::ArgTypes, 
-                std::tuple<A...>>
-        struct InnerMemberFunction : Inner<A...> {
-            // TODO: Handle T that is allocator-aware.
-            T obj; 
-
-            using C = typename CallableTraits<decltype(mfp)>::ClassType;
-
-            // TODO: check for noexcept.
-            InnerMemberFunction(C auto&& t, Alloc alloc)
-                : obj(std::forward<T>(t))  {
-                    // TODO: implement.
-                }
-
+        template<auto f, typename... A>
+            requires StandaloneFunction<decltype(f)>
+        struct InnerCallable<f,A...> : Inner<f,A...> {
             ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {
-                if constexpr (is_void_return()) {
-                    (obj.*mfp)(std::forward<A>(a)...);
-                } else {
-                    return (obj.*mfp)(std::forward<A>(a)...);
-                }
+                // TODO: implement.
+                return std::invoke(F, members, std::forward<A>(a)...);
             }
         };
+  
+        // TODO: Member function reference?
+        // TODO: Prototype this in godbolt. 
+        //.       Concerned about the type deduction of T in the constructor.
+        // TODO: A functor will have to be unique.
+        template<auto f, typename... A>
+            requires MemberFunctionPtr<decltype(f)> 
+        struct InnerCallable<f,A...> : Inner<A...> {
+            using F = decltype(f);
+            using T = typename CallableTraits<F>::ClassType;
+
+            template<typename T>
+            InnerCallable(const T& obj, return_type (T::*mfptr)(A...), const Alloc& alloc = Alloc()) 
+                : obj(obj), alloc{alloc} {
+            }
+
+            ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {
+                return std::invoke(f, obj std::forward<A>(a)...);
+            }
+        };
+
+      
+
+
 
     public:  
  

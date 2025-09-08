@@ -122,8 +122,7 @@ namespace ndof
             requires StandaloneFunction<decltype(f)>
         struct InnerCallable<f,A...> : Inner<f,A...> {
             ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {
-                // TODO: implement.
-                return std::invoke(F, members, std::forward<A>(a)...);
+                return std::invoke(f, std::forward<A>(a)...);
             }
         };
   
@@ -136,6 +135,10 @@ namespace ndof
         struct InnerCallable<f,A...> : Inner<A...> {
             using F = decltype(f);
             using T = typename CallableTraits<F>::ClassType;
+            T obj;
+
+            using InnerAlloc = rebind_t<Alloc, InnerCallable<f,A...>>;
+            InnerAlloc alloc;
 
             template<typename T>
             InnerCallable(const T& obj, return_type (T::*mfptr)(A...), const Alloc& alloc = Alloc()) 

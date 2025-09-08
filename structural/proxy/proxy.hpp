@@ -141,7 +141,9 @@ namespace ndof
             InnerAlloc alloc;
 
             // TODO: prototype this.  can T be deduced correctly?
-            template<typename T, ReturnType(T::*mfptr)(A...)>
+           
+            template<typename T>
+                requires std::is_convertible_v<T, typename CallableTraits<F>::ClassType>
             InnerCallable(const T& obj, const Alloc& alloc = InnerAlloc()) 
                 : obj(std::make_obj_using_allocator<T>(alloc, obj)), 
                   alloc{alloc} {

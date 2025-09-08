@@ -154,10 +154,6 @@ namespace ndof
                 return std::invoke(f, obj std::forward<A>(a)...);
             }
         };
- 
-
-      
-
 
 
     public:  

@@ -143,10 +143,9 @@ namespace ndof
             // TODO: prototype this.  can T be deduced correctly?
             template<typename T, ReturnType(T::*mfptr)(A...)>
             InnerCallable(const T& obj, const Alloc& alloc = InnerAlloc()) 
-                // TODO: pass the allocator if allocator-aware.
-                : obj(obj), alloc{alloc} {
-                    // TODO: make the right allocator.
-                    // TODO: Make sure the allocator is passed 
+                : obj(std::make_obj_using_allocator<T>(alloc, obj)), 
+                  alloc{alloc} {
+      
             }
 
             ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {

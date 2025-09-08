@@ -140,15 +140,18 @@ namespace ndof
             using InnerAlloc = rebind_t<Alloc, InnerCallable<f,A...>>;
             InnerAlloc alloc;
 
-            template<typename T>
-            InnerCallable(const T& obj, return_type (T::*mfptr)(A...), const Alloc& alloc = Alloc()) 
+            // TODO: prototype this.  can T be deduced correctly?
+            template<typename T, ReturnType(T::*mfptr)(A...)>
+            InnerCallable(const T& obj, const Alloc& alloc = InnerAlloc()) 
                 : obj(obj), alloc{alloc} {
+                    // TODO: make the right allocator.
             }
 
             ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {
                 return std::invoke(f, obj std::forward<A>(a)...);
             }
         };
+ 
 
       
 

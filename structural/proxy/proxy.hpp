@@ -145,6 +145,7 @@ namespace ndof
             InnerCallable(const T& obj, const Alloc& alloc = InnerAlloc()) 
                 : obj(obj), alloc{alloc} {
                     // TODO: make the right allocator.
+                    // TODO: Make sure the allocator is passed 
             }
 
             ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {

@@ -74,9 +74,16 @@ namespace ndof {
  
     template<class A_provided, class A_callee>
     concept AllocCompatibleFor =
-        requires { typename rebind_t<A_provided,  A_callee>; } &&
-        std::is_same_v<rebind_t<A_provided, A_callee>, rebind_t<A_callee, A_provided>> &&
-        std::constructible_from<rebind_t<A_provided, A_callee>, rebind_t<A_callee, A_provided>>;
+        requires { typename rebind_t<A_provided,  A_callee>; }  &&
+        std::constructible_from<rebind_t<A_provided, A_callee>, A_callee>;
+
+    template<Callable F>
+    struct as_function{
+        using type = typename GenerateFunction<F::qualifiers, typename F::ReturnType, typename F::ArgTypes>::type;
+    };
+
+    template<Callable F>
+    using as_function_t = typename as_function<F>::type;
 }
 
 // TODO: in callable_type_generator.hpp, from line 264, the types defined should be functions, not function pointers.
@@ -103,9 +110,12 @@ namespace ndof
         consteval static bool has_operator_parens() { 
             return requires(F f, A... a) { f(a...); }; 
         }
+        template <typename>
+        struct Inner;
 
-        template<typename... A>
-        struct Inner {
+      
+        template<typename R, typename... A>
+        struct Inner<R(A...) noexcept(is_noexcept())> {
             virtual ~Inner() = default;
             virtual ReturnType invoke(A&&...) noexcept(is_noexcept()) = 0;
 
@@ -119,8 +129,8 @@ namespace ndof
         struct InnerCallable;
 
         template<auto f, typename... A>
-            requires StandaloneFunction<decltype(f)>
-        struct InnerCallable<f,A...> : Inner<f,A...> {
+            requires StandaloneFunction<as_function_t<decltype(f)>>
+        struct InnerCallable<f,A...> : Inner<f> {
             ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {
                 return std::invoke(f, std::forward<A>(a)...);
             }
@@ -132,29 +142,26 @@ namespace ndof
         // TODO: A functor will have to be unique.
         template<auto f, typename... A>
             requires MemberFunctionPtr<decltype(f)> 
-        struct InnerCallable<f,A...> : Inner<A...> {
+        struct InnerCallable<f,A...> : Inner<as_function_t<decltype(f)>> {
             using F = decltype(f);
             using T = typename CallableTraits<F>::ClassType;
-            T obj;
 
             using InnerAlloc = rebind_t<Alloc, InnerCallable<f,A...>>;
             InnerAlloc alloc;
+            T function_obj;
 
+            // TODO: deduction guide.
             // TODO: prototype this.  can T be deduced correctly?
-           
-            template<typename T>
-                requires std::is_convertible_v<T, typename CallableTraits<F>::ClassType>
-            InnerCallable(const T& obj, const Alloc& alloc = InnerAlloc()) 
-                : obj(std::make_obj_using_allocator<T>(alloc, obj)), 
-                  alloc{alloc} {
-      
+            template<typename U>
+                requires std::is_convertible_v<U, T>
+            InnerCallable(const T& obj, const Alloc& alloc) 
+                : inner_alloc{alloc}, function_obj(std::make_obj_using_allocator<T>(inner_alloc, obj)) {
             }
 
             ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {
-                return std::invoke(f, obj std::forward<A>(a)...);
+                return std::invoke(f, function_obj, std::forward<A>(a)...);
             }
         };
-
 
     public:  
  

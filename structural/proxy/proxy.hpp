@@ -187,25 +187,13 @@ namespace ndof
             // TODO: Implement.
         }
 
-
-
-        // TODO: Implement.
-        // struct Wrapper{
-        //     template<typename... Args>
-        //     decltype(auto) operator()(Args&&... args) noexcept(is_noexcept()) {
-        //         return std::invoke(mfp, std::forward<Args>(args)...);
-        //     }
-        // };
-
- 
-
-        // TODO: define a wrapper to call the mfp via a operator() on the wrapper object.
+        // TODO: Call the InnerCallable<f ,ArgTypes...> constructor by taking the compile time mfp.
         template<
             typename T, 
-            typename R, 
-            typename ...Args, 
+            auto mfp,
             AllocCompatibleFor<Alloc> A>
-        Proxy(T&& t, R(*T::mfp)(Args...), A alloc = A{}) noexcept(is_noexcept()) {
+        Proxy(T&& t, A alloc = A{}) noexcept(is_noexcept()) // TODO: Implement member initializer list.
+         {
             
         }
              

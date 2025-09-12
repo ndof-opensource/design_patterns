@@ -173,24 +173,40 @@ namespace ndof
 
     public:
 
+        // TODO: The following two constructors do the same thing.  Condense.
+        // TODO: Handle exceptions and properly attribute as noexcept as necessary.
         template<AllocCompatibleFor<Alloc> A>
-        Proxy(StandaloneFunction auto f, const A alloc = A{}): alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc))  { 
-       
+        Proxy(StandaloneFunction auto f, const A alloc = A{}) noexcept(is_noexcept())
+            : inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc)), alloc(alloc) {
+
         }
          
         template<AllocCompatibleFor<Alloc> A>
-        Proxy(Functor auto&& f, const A alloc = A{}){
+        Proxy(Functor auto&& f, const A alloc = A{}) noexcept(is_noexcept())
+            : alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc))  {
             // TODO: Implement.
         }
 
 
+
+        // TODO: Implement.
+        // struct Wrapper{
+        //     template<typename... Args>
+        //     decltype(auto) operator()(Args&&... args) noexcept(is_noexcept()) {
+        //         return std::invoke(mfp, std::forward<Args>(args)...);
+        //     }
+        // };
+
+ 
+
+        // TODO: define a wrapper to call the mfp via a operator() on the wrapper object.
         template<
             typename T, 
             typename R, 
             typename ...Args, 
             AllocCompatibleFor<Alloc> A>
-        Proxy(T&& t, R(*T::mfp)(Args...), A alloc = A{}){
-            // TODO: Implement.
+        Proxy(T&& t, R(*T::mfp)(Args...), A alloc = A{}) noexcept(is_noexcept()) {
+            
         }
              
         template<

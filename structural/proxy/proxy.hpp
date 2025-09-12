@@ -176,7 +176,6 @@ namespace ndof
         template<AllocCompatibleFor<Alloc> A>
         Proxy(StandaloneFunction auto f, const A alloc = A{}): alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc))  { 
        
-            std::make_obj_using_allocator<InnerCallable<f, ArgTypes...>>(InnerAlloc{alloc}, alloc);
         }
          
         template<AllocCompatibleFor<Alloc> A>

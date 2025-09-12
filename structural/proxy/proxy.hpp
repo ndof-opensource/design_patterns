@@ -110,6 +110,7 @@ namespace ndof
         consteval static bool has_operator_parens() { 
             return requires(F f, A... a) { f(a...); }; 
         }
+
         template <typename>
         struct Inner;
 
@@ -163,17 +164,26 @@ namespace ndof
             }
         };
 
-    public:  
- 
+        Alloc alloc;
+        Inner<Fn>* inner;
+  
+        template<typename A>
+        using InnerAlloc = rebind_t<Alloc, InnerCallable<A, ArgTypes...>>
+
+
+    public:
+
         template<AllocCompatibleFor<Alloc> A>
-        Proxy(StandaloneFunction auto f, const A alloc = A{}) {
-            // TODO: Implement.
+        Proxy(StandaloneFunction auto f, const A alloc = A{}): alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc))  { 
+       
+            std::make_obj_using_allocator<InnerCallable<f, ArgTypes...>>(InnerAlloc{alloc}, alloc);
         }
          
         template<AllocCompatibleFor<Alloc> A>
         Proxy(Functor auto&& f, const A alloc = A{}){
             // TODO: Implement.
         }
+
 
         template<
             typename T, 

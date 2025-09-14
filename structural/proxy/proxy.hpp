@@ -92,8 +92,8 @@ namespace ndof {
 namespace ndof
 {
 
-    template <Function Fn, typename Alloc = std::allocator<Fn>>
-    struct Proxy
+    template <Function Fn, typename Alloc >
+    struct basic_proxy
     {
     private:
         // TODO: handle is_nothrow_convertible for arguments?
@@ -196,13 +196,13 @@ namespace ndof
 
     public:
         // TODO: Fix up noexcept and trap any outbound exceptions.
-        ~Proxy(){
+        ~basic_proxy(){
             destroy();
         }
         
         // TODO: Handle exceptions and properly attribute as noexcept as necessary.
         template<auto f, AllocCompatibleFor<Alloc> A>
-        Proxy(StandaloneFunction auto f, const A alloc = std::allocator<Fn>{}) noexcept(is_noexcept())
+        basic_proxy(StandaloneFunction auto f, const A alloc = std::allocator<Fn>{}) noexcept(is_noexcept())
             : inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc)), alloc(alloc) {
 
         }
@@ -214,22 +214,22 @@ namespace ndof
             auto mfp = &T::operator(),
             AllocCompatibleFor<Alloc> A = std::allocator<Fn>>
 
-        Proxy(T&& t, A alloc = A{}) noexcept(is_noexcept()) 
+        basic_proxy(T&& t, A alloc = A{}) noexcept(is_noexcept()) 
             : alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<mfp, ArgTypes...>>(alloc))  { 
            // Do nothing.
         }
 
         // TODO: is CallableTraits<decltype(f)> correct here?  Does the reference need to be removed?
         template<AllocCompatibleFor<Alloc> A>
-        Proxy(Functor auto&& f, const A alloc = A{}) noexcept(is_noexcept())
-            : Proxy<typename CallableTraits<decltype(f)>::ClassType ,decltype(f)::operator()), A>(
+        basic_proxy(Functor auto&& f, const A alloc = A{}) noexcept(is_noexcept())
+            : basic_proxy<typename CallableTraits<decltype(f)>::ClassType ,decltype(f)::operator()), A>(
                 std::forward<decltype(f)>(f), alloc) {
             // Do nothing.
         }
 
         // Copy constructor
         template<AllocCompatibleFor<Alloc> A>
-        Proxy(const Proxy<Fn, A>& other)
+        basic_proxy(const basic_proxy<Fn, A>& other)
             : alloc(std::allocator_traits<Alloc>::select_on_container_copy_construction(other.get_allocator())), inner(nullptr)
         {
             if (other.get()) {
@@ -240,7 +240,7 @@ namespace ndof
 
         // TODO: Move constructor.
         template<AllocCompatibleFor<Alloc> A>
-        Proxy(Proxy<Fn,A>&& other) {
+        basic_proxy(basic_proxy<Fn,A>&& other) {
             if constexpr (std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value) {
                 alloc = std::move(other.alloc);
             }
@@ -248,7 +248,7 @@ namespace ndof
             other.inner = nullptr;
         }
         template<AllocCompatibleFor<Alloc> OtherAlloc>
-        void swap(Proxy<Fn, OtherAlloc>& other) noexcept(is_noexcept()) {
+        void swap(basic_proxy<Fn, OtherAlloc>& other) noexcept(is_noexcept()) {
             using std::swap;
             //   Only swap allocators if they are of the same type; otherwise, the inner
             //      must be deallocated and reallocated using the new allocator.
@@ -275,7 +275,6 @@ namespace ndof
                 inner = new_inner;
                 other.inner = other_new_inner;
             }
-            
         }
 
         bool has_value() const noexcept {
@@ -304,7 +303,7 @@ namespace ndof
         }
 
         template<AllocCompatibleFor<Alloc> OtherAlloc>
-        Proxy& operator=(const Proxy<Fn, OtherAlloc>& other) {
+        basic_proxy& operator=(const basic_proxy<Fn, OtherAlloc>& other) {
             if (reinterpret_cast<const void*>(this) != reinterpret_cast<const void*>(&other)) {
                 destroy();
                 alloc = std::allocator_traits<Alloc>::select_on_container_copy_construction(other.get_allocator());
@@ -319,7 +318,7 @@ namespace ndof
         }
 
         template<AllocCompatibleFor<Alloc> OtherAlloc>
-        Proxy& operator=(Proxy<Fn, OtherAlloc>&& other) noexcept(
+        basic_proxy& operator=(basic_proxy<Fn, OtherAlloc>&& other) noexcept(
             std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value || std::is_nothrow_move_assignable_v<Alloc>
         ) {
             if (reinterpret_cast<const void*>(this) != reinterpret_cast<const void*>(&other)) {
@@ -336,7 +335,13 @@ namespace ndof
         Alloc get_allocator() const{
             return alloc; 
         }
-
- 
     };
+
+    template <Function Fn>
+    using Proxy = basic_proxy<Fn, std::allocator<Fn>>;
+
+    namespace pmr{
+        template <Function Fn>
+        using Proxy = basic_proxy<Fn, std::pmr::polymorphic_allocator<Fn>>;
+    }
 }

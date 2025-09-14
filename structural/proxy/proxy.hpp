@@ -188,8 +188,8 @@ namespace ndof
                     }
                 }
                 else {
-                    alloc.destroy(inner);
-                    alloc.deallocate(inner, 1);
+                    std::allocator_traits<Alloc>::destroy(alloc, inner);
+                    std::allocator_traits<Alloc>::deallocate(alloc,inner, 1);
                 }
             }
         }

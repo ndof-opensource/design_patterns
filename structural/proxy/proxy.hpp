@@ -182,7 +182,7 @@ namespace ndof
                 if constexpr (is_noexcept()) {
                     try {
                         cleanup_inner();
-                    } catch (...) {
+                    } catch (...) { 
                         std::terminate();
                     }
                 }
@@ -199,7 +199,6 @@ namespace ndof
             destroy();
         }
         
- 
         // TODO: Handle exceptions and properly attribute as noexcept as necessary.
         template<auto f, AllocCompatibleFor<Alloc> A>
         Proxy(StandaloneFunction auto f, const A alloc = std::allocator<Fn>{}) noexcept(is_noexcept())
@@ -256,8 +255,6 @@ namespace ndof
             // TODO: Implement.
         }
 
-
-
         template<typename ...A>
         return_type operator(this auto&& self, A... a) & noexcept(is_noexcept())  
         // TODO: Add constraints.
@@ -269,8 +266,9 @@ namespace ndof
         // TODO: Implement all the other constructors and assignment operators.
 
         Alloc get_allocator() const{
-            // TODO: Implement.
+            return alloc; 
         }
-    private:
+
+ 
     };
 }

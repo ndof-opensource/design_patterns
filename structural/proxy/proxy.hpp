@@ -69,7 +69,8 @@ namespace ndof {
     // };
     
     // TODO: Consider permitting logger callbacks. zero cost possible?
-    
+    // TODO: Tag methods with [[nodiscard]] where appropriate.
+
     template<class A, class T>
     using rebind_t = typename std::allocator_traits<A>::template rebind_alloc<T>;
  
@@ -115,7 +116,6 @@ namespace ndof
         template <typename>
         struct Inner;
 
-      
         template<typename R, typename... A>
         struct Inner<R(A...) noexcept(is_noexcept())> {
             virtual ~Inner() = default;
@@ -227,44 +227,111 @@ namespace ndof
             // Do nothing.
         }
 
-        // TODO: Copy constructor.
+        // Copy constructor
         template<AllocCompatibleFor<Alloc> A>
-        Proxy(const Proxy<Fn,A>& other) {
-            // TODO: Implement.
+        Proxy(const Proxy<Fn, A>& other)
+            : alloc(std::allocator_traits<Alloc>::select_on_container_copy_construction(other.get_allocator())), inner(nullptr)
+        {
+            if (other.get()) {
+            // Assume Inner has a virtual clone method that takes an allocator.
+            inner = other.get()->clone(alloc);
+            }
         }
 
         // TODO: Move constructor.
         template<AllocCompatibleFor<Alloc> A>
         Proxy(Proxy<Fn,A>&& other) {
-            // TODO: Implement.
+            if constexpr (std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value) {
+                alloc = std::move(other.alloc);
+            }
+            inner = other.inner;
+            other.inner = nullptr;
+        }
+        template<AllocCompatibleFor<Alloc> OtherAlloc>
+        void swap(Proxy<Fn, OtherAlloc>& other) noexcept(is_noexcept()) {
+            using std::swap;
+            //   Only swap allocators if they are of the same type; otherwise, the inner
+            //      must be deallocated and reallocated using the new allocator.
+            //      Same with the other's inner.
+            //      But before they are destroyed, they must be cloned using the new allocator,
+            //      but only if the allocator types are compatible, but not different.
+            if constexpr (std::is_same_v<Alloc, OtherAlloc>) {
+                using std::swap;
+                swap(inner, other.inner);
+                swap(alloc, other.alloc);
+            } else {
+                // Clone other's inner into this using this allocator
+                Inner<Fn>* new_inner = nullptr;
+                if (other.inner) {
+                    new_inner = other.inner->clone(alloc);
+                }
+                // Clone this inner into other using other's allocator
+                Inner<Fn>* other_new_inner = nullptr;
+                if (inner) {
+                    other_new_inner = inner->clone(other.alloc);
+                }
+                destroy();
+                other.destroy();
+                inner = new_inner;
+                other.inner = other_new_inner;
+            }
+            
         }
 
-        // TODO: Copy assignment operator.
-        template<AllocCompatibleFor<Alloc> A>
-        Proxy<Fn,A>& operator=(const Proxy<Fn,A>& other) {
-            // TODO: Implement.
+        bool has_value() const noexcept {
+            return inner != nullptr;
+        }
+        using pointer = Inner<Fn>*;
+        using allocator_type = Alloc;
+
+        pointer get() const noexcept {
+            return inner;
         }
 
-        // TODO: Move assignment operator.
-        template<AllocCompatibleFor<Alloc> A>
-        Proxy<Fn,A>& operator=(Proxy<Fn,A>&& other) {
-            // TODO: Implement.
+        explicit operator bool() const noexcept {
+            return has_value();
         }
 
-        // TODO: Destructor.
-        ~Proxy() {
-            // TODO: Implement.
+        ReturnType operator()(ArgTypes... args) noexcept(is_noexcept()) {
+            if (!inner) {
+                if constexpr (is_noexcept()) {
+                    std::terminate();
+                } else {
+                    throw std::bad_function_call();
+                }
+            }
+            return inner->invoke(std::forward<ArgTypes>(args)...);
         }
 
-        template<typename ...A>
-        return_type operator(this auto&& self, A... a) & noexcept(is_noexcept())  
-        // TODO: Add constraints.
-        {
-            // TODO: Implement.
-        }   
+        template<AllocCompatibleFor<Alloc> OtherAlloc>
+        Proxy& operator=(const Proxy<Fn, OtherAlloc>& other) {
+            if (reinterpret_cast<const void*>(this) != reinterpret_cast<const void*>(&other)) {
+                destroy();
+                alloc = std::allocator_traits<Alloc>::select_on_container_copy_construction(other.get_allocator());
+                if (other.get()) {
+                    // Assume Inner has a virtual clone method that takes an allocator.
+                    inner = other.get()->clone(alloc);
+                } else {
+                    inner = nullptr;
+                }
+            }
+            return *this;
+        }
 
-
-        // TODO: Implement all the other constructors and assignment operators.
+        template<AllocCompatibleFor<Alloc> OtherAlloc>
+        Proxy& operator=(Proxy<Fn, OtherAlloc>&& other) noexcept(
+            std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value || std::is_nothrow_move_assignable_v<Alloc>
+        ) {
+            if (reinterpret_cast<const void*>(this) != reinterpret_cast<const void*>(&other)) {
+            destroy();
+            if constexpr (std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value) {
+                alloc = std::move(other.alloc);
+            }
+            inner = other.inner;
+            other.inner = nullptr;
+            }
+            return *this;
+        }
 
         Alloc get_allocator() const{
             return alloc; 

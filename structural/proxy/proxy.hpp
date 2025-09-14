@@ -172,13 +172,14 @@ namespace ndof
         using InnerAlloc = rebind_t<Alloc, InnerCallable<A, ArgTypes...>>
 
         void destroy() noexcept(is_noexcept()) {
+            // TODO: Consider a wrapper to decorate this logic, specifically, 
+            //       the try/catch/terminate pattern. Pass the fn to be wrapped.
             if (inner) {
                 auto cleanup_inner = []() noexcept(is_noexcept()) {
-                    alloc.destroy(inner);
-                    alloc.deallocate(inner, 1);
+                    std::allocator_traits<Alloc>::destroy(alloc, inner);
+                    std::allocator_traits<Alloc>::deallocate(alloc,inner, 1);
                 };
-                // TODO: Consider a wrapper to decorate this logic, specifically, 
-                //       the try/catch/terminate pattern. Pass the fn to be wrapped.
+
                 if constexpr (is_noexcept()) {
                     try {
                         cleanup_inner();

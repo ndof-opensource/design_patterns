@@ -67,7 +67,8 @@ namespace ndof {
     //     CopyableUniquePtr(CopyableUniquePtr&&) noexcept = default;
     //     CopyableUniquePtr& operator=(CopyableUniquePtr&&) noexcept = default;
     // };
-
+    
+    // TODO: Consider permitting logger callbacks. zero cost possible?
     
     template<class A, class T>
     using rebind_t = typename std::allocator_traits<A>::template rebind_alloc<T>;
@@ -172,7 +173,17 @@ namespace ndof
 
 
     public:
-
+        // TODO: Fix up noexcept and trap any outbound exceptions.
+        ~Proxy(){
+            try{ 
+            alloc.destroy(inner);
+            alloc.deallocate(inner, 1);
+            } catch(...){
+                // TODO: What else to do?
+                std::terminate();
+            }
+        }
+        
         // TODO: The following two constructors do the same thing.  Condense.
         // TODO: Handle exceptions and properly attribute as noexcept as necessary.
         template<AllocCompatibleFor<Alloc> A>
@@ -181,31 +192,22 @@ namespace ndof
 
         }
          
-        template<AllocCompatibleFor<Alloc> A>
-        Proxy(Functor auto&& f, const A alloc = A{}) noexcept(is_noexcept())
-            : alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc))  {
-            // TODO: Implement.
-        }
-
         // TODO: Call the InnerCallable<f ,ArgTypes...> constructor by taking the compile time mfp.
         template<
             typename T, 
             auto mfp,
             AllocCompatibleFor<Alloc> A>
-        Proxy(T&& t, A alloc = A{}) noexcept(is_noexcept()) // TODO: Implement member initializer list.
-         {
-            
+        Proxy(T&& t, A alloc = A{}) noexcept(is_noexcept()) 
+            : alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc))  { 
+           // Do nothing.
         }
-             
-        template<
-            typename T, 
-            AllocCompatibleFor<Alloc> A>
-        Proxy(T&& t,  A alloc = A{})
-            // TODO: should check the operator() of T is compatible with Fn.
-            requires requires {
-                &T::operator(); } && 
-                ParameterCompatible<Fn, decltype(&T::operator())> {
-            // TODO: Implement.
+
+        // TODO: is CallableTraits<decltype(f)> correct here?  Does the reference need to be removed?
+        template<AllocCompatibleFor<Alloc> A>
+        Proxy(Functor auto&& f, const A alloc = A{}) noexcept(is_noexcept())
+            : Proxy<typename CallableTraits<decltype(f)>::ClassType ,decltype(f)::operator()), A>(
+                std::forward<decltype(f)>(f), alloc) {
+            // Do nothing.
         }
 
         // TODO: Copy constructor.

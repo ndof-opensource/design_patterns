@@ -36,7 +36,7 @@ namespace ndof {
     // TODO: make sure this type supports allocator.
     // TODO: will have to add the deleter and also use the constructor of std::unique_ptr that takes a deleter
     //       and should rebind the unique pointers allocator type to the allocator type passed in.
-    // TODO: allocators should not move or be copied into the target instance.  
+    // TODO: allocators should not move or be copied into the target instance?  
     // TODO: if the allocator pointer is different across moves, copies or assignments, then space should be allocated for the new object 
     //       using the new type's allocator and the old object should be destroyed using the old allocator.
     //       I.E., allocators stay with their respective objects and are not shared across copies or moves.
@@ -167,27 +167,42 @@ namespace ndof
 
         Alloc alloc;
         Inner<Fn>* inner;
-  
-        template<typename A>
+
+        template <typename A>
         using InnerAlloc = rebind_t<Alloc, InnerCallable<A, ArgTypes...>>
 
+        void destroy() noexcept(is_noexcept()) {
+            if (inner) {
+                auto cleanup_inner = []() noexcept(is_noexcept()) {
+                    alloc.destroy(inner);
+                    alloc.deallocate(inner, 1);
+                };
+                // TODO: Consider a wrapper to decorate this logic, specifically, 
+                //       the try/catch/terminate pattern. Pass the fn to be wrapped.
+                if constexpr (is_noexcept()) {
+                    try {
+                        cleanup_inner();
+                    } catch (...) {
+                        std::terminate();
+                    }
+                }
+                else {
+                    alloc.destroy(inner);
+                    alloc.deallocate(inner, 1);
+                }
+            }
+        }
 
     public:
         // TODO: Fix up noexcept and trap any outbound exceptions.
         ~Proxy(){
-            try{ 
-            alloc.destroy(inner);
-            alloc.deallocate(inner, 1);
-            } catch(...){
-                // TODO: What else to do?
-                std::terminate();
-            }
+            destroy();
         }
         
-        // TODO: The following two constructors do the same thing.  Condense.
+ 
         // TODO: Handle exceptions and properly attribute as noexcept as necessary.
-        template<AllocCompatibleFor<Alloc> A>
-        Proxy(StandaloneFunction auto f, const A alloc = A{}) noexcept(is_noexcept())
+        template<auto f, AllocCompatibleFor<Alloc> A>
+        Proxy(StandaloneFunction auto f, const A alloc = std::allocator<Fn>{}) noexcept(is_noexcept())
             : inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc)), alloc(alloc) {
 
         }
@@ -195,10 +210,12 @@ namespace ndof
         // TODO: Call the InnerCallable<f ,ArgTypes...> constructor by taking the compile time mfp.
         template<
             typename T, 
-            auto mfp,
-            AllocCompatibleFor<Alloc> A>
+            // TODO: Prototype this.  See if &T::operator() can be deduced correctly.
+            auto mfp = &T::operator(),
+            AllocCompatibleFor<Alloc> A = std::allocator<Fn>>
+
         Proxy(T&& t, A alloc = A{}) noexcept(is_noexcept()) 
-            : alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc))  { 
+            : alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<mfp, ArgTypes...>>(alloc))  { 
            // Do nothing.
         }
 

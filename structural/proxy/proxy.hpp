@@ -92,8 +92,20 @@ namespace ndof {
 namespace ndof
 {
 
-    template <Function Fn, typename Alloc >
-    struct basic_proxy
+    // TODO: Pray to Buddha.  Are we willing to pay the cost of a virtual function call?
+    //       Or is this too much overhead?
+    //       Can we use a variant instead? 
+
+ 
+    // TODO: Design decision. here.  Do we want to support a polymorphic proxy that can hold any basic_proxy type?
+    struct even_more_basic_proxy {
+
+    };
+
+    extern Logger get_logger();
+
+    template <Function Fn, typename Alloc>
+    struct basic_proxy  
     {
     private:
         // TODO: handle is_nothrow_convertible for arguments?
@@ -101,9 +113,6 @@ namespace ndof
 
         using ArgTypes = typename CallableTraits<F>::ArgTypes;
         using ReturnType = typename CallableTraits<F>::ReturnType;
-        using Members = std::tuple<std::any, Alloc>
-
-        mutable Members members;
 
         consteval static bool is_noexcept() { return QualifiedBy<Fn, Qualifier::NoExcept>; }
         consteval static bool is_void_return() { return std::is_void_v<ReturnType>; }
@@ -115,7 +124,8 @@ namespace ndof
 
         template <typename>
         struct Inner;
-
+ 
+        // TODO: add constraints for R and A...
         template<typename R, typename... A>
         struct Inner<R(A...) noexcept(is_noexcept())> {
             virtual ~Inner() = default;
@@ -131,12 +141,12 @@ namespace ndof
         struct InnerCallable;
 
         template<auto f, typename... A>
-            requires StandaloneFunction<as_function_t<decltype(f)>>
+            requires StandaloneFunction<decltype(f)>
         struct InnerCallable<f,A...> : Inner<f> {
             ReturnType invoke(A&&... a) noexcept(is_noexcept()) override {
                 return std::invoke(f, std::forward<A>(a)...);
             }
-        };
+        }
   
         // TODO: Member function reference?
         // TODO: Prototype this in godbolt. 
@@ -165,8 +175,9 @@ namespace ndof
             }
         };
 
-        Alloc alloc;
+        mutable Alloc alloc;
         Inner<Fn>* inner;
+ 
 
         template <typename A>
         using InnerAlloc = rebind_t<Alloc, InnerCallable<A, ArgTypes...>>
@@ -184,12 +195,12 @@ namespace ndof
                     try {
                         cleanup_inner();
                     } catch (...) { 
+                        // TODO: Deep meditation. How to recover or log?  User callback?
                         std::terminate();
                     }
                 }
                 else {
-                    std::allocator_traits<Alloc>::destroy(alloc, inner);
-                    std::allocator_traits<Alloc>::deallocate(alloc,inner, 1);
+                    cleanup_inner();
                 }
             }
         }
@@ -202,8 +213,7 @@ namespace ndof
         
         // TODO: Handle exceptions and properly attribute as noexcept as necessary.
         template<auto f, AllocCompatibleFor<Alloc> A>
-        basic_proxy(StandaloneFunction auto f, const A alloc = std::allocator<Fn>{}) noexcept(is_noexcept())
-            : inner(std::uninitialized_construct_using_allocator<InnerCallable<f, ArgTypes...>>(alloc)), alloc(alloc) {
+        basic_proxy(StandaloneFunction auto f, const A alloc = std::allocator<Fn>{}) noexcept(is_noexcept()){
 
         }
          
@@ -214,9 +224,11 @@ namespace ndof
             auto mfp = &T::operator(),
             AllocCompatibleFor<Alloc> A = std::allocator<Fn>>
 
+ 
+        // TODO: Make exception safe, or at least consistent.
         basic_proxy(T&& t, A alloc = A{}) noexcept(is_noexcept()) 
-            : alloc(alloc), inner(std::uninitialized_construct_using_allocator<InnerCallable<mfp, ArgTypes...>>(alloc))  { 
-           // Do nothing.
+            : alloc(alloc)  {
+                // Do nothing.
         }
 
         // TODO: is CallableTraits<decltype(f)> correct here?  Does the reference need to be removed?
@@ -233,37 +245,43 @@ namespace ndof
         //       Otherwise, the methods should be deleted.
         
         // Copy constructor
+        // TODO: overkill. just take the Alloc.
         template<AllocCompatibleFor<Alloc> A>
         basic_proxy(const basic_proxy<Fn, A>& other)
             : alloc(std::allocator_traits<Alloc>::select_on_container_copy_construction(other.get_allocator())), inner(nullptr)
         {
             if (other.get()) {
-            // Assume Inner has a virtual clone method that takes an allocator.
-            inner = other.get()->clone(alloc);
+                // Assume Inner has a virtual clone method that takes an allocator.
+                inner = other.get()->clone(alloc);
             }
         }
 
         // TODO: Move constructor.
         template<AllocCompatibleFor<Alloc> A>
         basic_proxy(basic_proxy<Fn,A>&& other) {
+            // TODO: Fix me. move assignment is wrong.
             if constexpr (std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value) {
                 alloc = std::move(other.alloc);
             }
             inner = other.inner;
             other.inner = nullptr;
         }
+
         template<AllocCompatibleFor<Alloc> OtherAlloc>
         void swap(basic_proxy<Fn, OtherAlloc>& other) noexcept(is_noexcept()) {
-            using std::swap;
             //   Only swap allocators if they are of the same type; otherwise, the inner
             //      must be deallocated and reallocated using the new allocator.
             //      Same with the other's inner.
             //      But before they are destroyed, they must be cloned using the new allocator,
-            //      but only if the allocator types are compatible, but not different.
+            //      but only if the allocator types are compatible. 
+
+            // TODO: check for the same object.
+            if (this == &other) {
+                return;
+            }
             if constexpr (std::is_same_v<Alloc, OtherAlloc>) {
-                using std::swap;
-                swap(inner, other.inner);
-                swap(alloc, other.alloc);
+                std::swap(inner, other.inner);
+                std::swap(alloc, other.alloc);
             } else {
                 // Clone other's inner into this using this allocator
                 Inner<Fn>* new_inner = nullptr;
@@ -279,6 +297,8 @@ namespace ndof
                 other.destroy();
                 inner = new_inner;
                 other.inner = other_new_inner;
+
+                // TODO: Swap allocators if they are of different types.
             }
         }
 
@@ -322,6 +342,9 @@ namespace ndof
             return *this;
         }
 
+        // TODO: Investigate if the user should be able to pass a different "Fn" as long as it is convertible to the current Fn.
+        //       This would be similar to std::function's assignment operator.
+        //       But this would require destroying the current inner and creating a new inner of the new
         template<AllocCompatibleFor<Alloc> OtherAlloc>
         basic_proxy& operator=(basic_proxy<Fn, OtherAlloc>&& other) noexcept(
             std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value || std::is_nothrow_move_assignable_v<Alloc>

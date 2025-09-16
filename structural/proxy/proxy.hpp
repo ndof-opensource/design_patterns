@@ -262,6 +262,7 @@ namespace ndof
         template<AllocCompatibleFor<Alloc> A>
         basic_proxy(basic_proxy<Fn,A>&& other) {
             // TODO: Fix me. move assignment is wrong.
+            // TODO: Add better exception safety in accordance with the noexcept specification.
             if constexpr (std::allocator_traits<Alloc>::propagate_on_container_move_assignment::value) {
                 alloc = std::move(other.alloc);
             }

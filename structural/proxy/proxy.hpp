@@ -271,6 +271,8 @@ namespace ndof
         }
 
         // TODO: propagate_on_container_swap
+        // Note: no swap() function invalidates any references, pointers, or iterators referring to the elements of the containers being swapped.
+        // TODO: consider just deleting swap. Yikes!
         template<AllocCompatibleFor<Alloc> OtherAlloc>
         void swap(basic_proxy<Fn, OtherAlloc>& other) noexcept(is_noexcept()) {
             //   Only swap allocators if they are of the same type; otherwise, the inner

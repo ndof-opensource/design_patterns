@@ -255,7 +255,7 @@ namespace ndof
                 inner = other.get()->clone(alloc);
             }
         }
-
+ 
         // TODO: Look into move_with_noexcept from C++23.
         // https://www.foonathan.net/2015/10/allocatorawarecontainer-propagation-pitfalls/
         // Move constructor.

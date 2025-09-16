@@ -241,7 +241,7 @@ namespace ndof
 
         // TODO: Add constraints to copy constructor, move constructor, copy assignment and move assignment 
         //.      exist for the Inner type.
-        // TODO: Make sure those methods are defined for Inner iff they type supports them.
+        // TODO: Make sure those methods are defined for Inner iff the type supports them.
         //       Otherwise, the methods should be deleted.
         
         // Copy constructor
@@ -256,7 +256,9 @@ namespace ndof
             }
         }
 
-        // TODO: Move constructor.
+        // TODO: Look into move_with_noexcept from C++23.
+        // https://www.foonathan.net/2015/10/allocatorawarecontainer-propagation-pitfalls/
+        // Move constructor.
         template<AllocCompatibleFor<Alloc> A>
         basic_proxy(basic_proxy<Fn,A>&& other) {
             // TODO: Fix me. move assignment is wrong.

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <exception>
 #include <memory>
 #include <concepts>
 #include <type_traits>
@@ -35,40 +36,83 @@ concept IsCloneable = std::is_copy_constructible_v<std::remove_cvref_t<T>> ||
                       IsAllocatorCloneable<std::remove_cvref_t<T>> ||
                       HasPlacementClone<std::remove_cvref_t<T>>;
 
-template <IsCloneable T>
+// Custom deleter
+template <typename T, typename Alloc>
+struct CloneDeleter {
+    // Bob's instructions were to hold these in a tuple so that compiler 
+    // can optimize away allocating memory for the allocator if it's stateless.
+    // [[no_unique_address]] accomplishes the same goal. Get Bob concurrence.
+    // 10/29/25 Bob concurred based on prototyping this previously.
+    
+    [[no_unique_address]] Alloc alloc;
+
+    CloneDeleter(const Alloc& a = Alloc()) : alloc(a) {}
+    using alloc_traits = std::allocator_traits<Alloc>;
+
+    // TODO: determine if allocator is noexcept, then handle accordingly
+    static constexpr bool is_noexcept = noexcept(alloc_traits::destroy) && noexcept(alloc_traits::deallocate);
+
+    void operator()(T* ptr) noexcept(is_noexcept) {
+        if (!ptr) return;
+        alloc_traits::destroy(alloc, ptr);
+        alloc_traits::deallocate(alloc, ptr, 1);
+    }
+};
+
+template <IsCloneable T, typename Alloc = std::allocator<T>>
 class Prototype {
 private:
     
 private:
-    T held_object;
+
+    using InternalDeleter = CloneDeleter<T, Alloc>;
+    std::unique_ptr<T, InternalDeleter> held_object;
     
 public:
-    explicit Prototype(const T& obj) : held_object(obj) {}
+    explicit Prototype(const T& obj, const Alloc& alloc = Alloc()) {
+        using traits = std::allocator_traits<Alloc>;
+        // convert from nested to checking for appropriate exception and handling
+        // also add nested exception for what happens if deallocate throws an 
+        // exception in handling of construction exception
+        try {
+            T* ptr = traits::allocate(alloc, 1);
+            try {
+                traits::construct(alloc, ptr, obj);
+                held_object = std::unique_ptr<T, InternalDeleter>(ptr, InternalDeleter(alloc));
+            } catch (...) {
+                try {
+                    traits::deallocate(alloc, ptr, 1);
+                } catch (const std::exception& e) {
+                    std::throw_with_nested(e);
+                }
+            }
+        } catch (...) {
 
-    explicit Prototype(T&& obj) : held_object(std::move(obj)) {}
-
-    // Simple, Value Clone: takes no arguments, returns a copy of T
-    T clone() const {
-        if constexpr (HasSimpleClone<T>) {
-            // prefer to use class's clone() method if it exists
-            return held_object.clone();
-        } else {
-            // otherwise, fall back to copy constructor
-            return held_object;
         }
     }
 
-    // Allocator-aware Clone: use the passed allocator, return a pointer to T
-    template <typename Alloc>
-    T* clone(const Alloc& alloc) const
+    // TODO: Peter: ended here after re-writing lvalue ref constructor.
+    // Need to update rvalue ref constructor and following code.
+    explicit Prototype(T&& obj, const Alloc& alloc = Alloc()) : held_object(std::move(obj)), allocator(alloc) {}
+
+    // Uses allocator held by this Prototype
+    T clone() const
         requires IsAllocatorCloneable<T>
     {
-        if constexpr (HasAllocatorAwareClone<T, Alloc>) {
+        return this->clone(this->allocator);
+    }
+
+    // Allocator-aware Clone: use the passed allocator, return a pointer to T
+    template <typename OtherAlloc>
+    T* clone(const OtherAlloc& alloc) const
+        requires IsAllocatorCloneable<T>
+    {
+        if constexpr (HasAllocatorAwareClone<T, OtherAlloc>) {
             // Prioritize using object's allocator-aware clone method, if it exists
             return held_object.clone(alloc);
         } else {
             // Otherwise, fall back to using allocator-aware copy constructor
-            using traits = std::allocator_traits<Alloc>;
+            using traits = std::allocator_traits<OtherAlloc>;
             T* ptr = traits::allocate(alloc, 1);
             try {
                 // Pass the allocator to T's constructor

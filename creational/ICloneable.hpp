@@ -6,6 +6,7 @@
 
 template<typename Derived> 
 struct ICloneable{
+    friend Derived;
 
     struct PmrDeleter {
         using DestroyFn = void(*)(ICloneable*, std::pmr::memory_resource*) noexcept;
@@ -30,6 +31,12 @@ struct ICloneable{
     virtual ~ICloneable() = default;
 
 private:
+    // private, default constructor: no data members, private + friend enforces proper CRTP
+    ICloneable() = default;
+    // private, default copy constructor: no data members to copy, private + friend prevents 
+    // object slicing while allowing derived classes to be copied normally
+    ICloneable(const ICloneable&) = default;
+
     // Static destruction logic specific to Derived, but with a uniform signature.
     static void destroy_impl(ICloneable* base, std::pmr::memory_resource* mr) noexcept {
         auto* d = static_cast<Derived*>(base);

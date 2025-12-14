@@ -32,7 +32,7 @@ struct ICloneable{
 
 private:
 
-    std::pmr::memory_resource* mr = nullptr; // TODO: Change this name to avoid confusion with the memory resource parameter of the clone method?
+    std::pmr::memory_resource* mem_res = nullptr; 
     // private, default constructor: no data members, private + friend enforces proper CRTP
     ICloneable() = default;
     // private, default copy constructor: no data members to copy, private + friend prevents 
@@ -50,11 +50,20 @@ public:
 
     // Clone into the given memory resource.
     // Contract: the caller guarantees that `mr` outlives the clone.
-    virtual std::unique_ptr<T, PmrDeleter> clone(std::pmr::memory_resource* mr = nullptr) const {
-        using D = T;
-        auto const& self = static_cast<D const&>(*this);
+    template<typename U>
+    requires std::is_base_of_v<T, U>
+    std::unique_ptr<std::remove_reference_t<T>, PmrDeleter> clone(this T& self, std::pmr::memory_resource* mr = nullptr) {
+        if (!mr) mr = self.mem_res;
+        std::unique_ptr<U, PmrDeleter> r = self.do_clone(mr);
         // instantiate a polymorphic allocator using the memory resource for the type of T
 
+    }
+
+protected:
+
+    virtual std::unique_ptr<T, PmrDeleter> do_clone(std::pmr::memory_resource* mr = nullptr) {
+        using D = T; // TODO: Ask Bob if we still need this?
+        auto const& self = static_cast<D const&>(*this);
         if (!mr) {
             // Plain new/delete path
             return std::unique_ptr<T, PmrDeleter>(new D(self), PmrDeleter{}); // default-constructed deleter => delete

@@ -4,7 +4,7 @@
 #include <type_traits>
 
 
-template<typename T> 
+template<typename T> // TODO: Add allocator as template parameter
 struct ICloneable {
     friend T;
 
@@ -44,7 +44,7 @@ struct ICloneable {
     virtual ~ICloneable() = default;
 
 private:
-    std::pmr::memory_resource* mem_res = nullptr; 
+    std::pmr::memory_resource* mem_res = nullptr; // TODO: Change all mem_res to allocator - no long hold a memory resource
     // private, default constructor: no data members, private + friend enforces proper CRTP
     ICloneable() = default;
     // private, default copy constructor: no data members to copy, private + friend prevents 

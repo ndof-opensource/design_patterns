@@ -2,7 +2,7 @@
 #include <memory_resource>
 #include <memory>
 #include <type_traits>
-
+#include <concepts>
 
 template<typename T, typename Alloc = std::pmr::polymorphic_allocator<T>>
 struct ICloneable {
@@ -22,7 +22,7 @@ struct ICloneable {
 
         // Enable conversion from AllocDeleter<rebind> for base/derived pointer conversions
         template<typename OtherAlloc>
-        requires std::is_same_v<
+        requires std::same_as<
             typename std::allocator_traits<OtherAlloc>::template rebind_alloc<typename alloc_traits::value_type>,
             A
         >
@@ -74,15 +74,6 @@ public:
         using ReboundAlloc = typename alloc_traits::template rebind_alloc<U>;
         using ReboundDeleter = AllocDeleter<ReboundAlloc>;
 
-        // Use select_on_container_copy_construction for proper propagation semantics.
-        // TODO: Discussion point. We need to decide what we want for this logic.
-        // As is, this will first select the allocator to use for container copy construction,
-        // then, if that allocator is the default resource, we use the object's stored allocator.
-        // But what if the user passes a non-default resource but the select_on_container_copy_construction is the default?
-        // Then we will use the stored allocator, but maybe we should have used the allocator the user passed instead?
-        // Reminder for Peter: both std::allocator and std::pmr::polymorphic_allocator use default-constructed for select_on...
-        Alloc new_alloc = alloc_traits::select_on_container_copy_construction(alloc);
-
         // If passed a default-constructed allocator, try to use the object's stored allocator.
         // This check is specific to polymorphic_allocator which has a resource() method.
         if constexpr (requires { new_alloc.resource(); }) {
@@ -106,6 +97,9 @@ public:
             ReboundDeleter(rebound_alloc)
         );
     }
+
+    // TODO: make a new clone() method with signature clone(this U const& self)
+    // can chain these methods together to avoid code duplication
 
 protected:
     /* TODO: Discussion point.

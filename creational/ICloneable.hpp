@@ -4,14 +4,22 @@
 #include <type_traits>
 #include <concepts>
 
-template<typename T, typename Alloc = std::pmr::polymorphic_allocator<T>>
+// TODO: we use std::convertible_to in constructor requires clause. Can we delete this concept?
+template<typename Alloc1, typename Alloc2>
+concept is_allocator_compatible = requires (Alloc2 a2) {
+    Alloc1(a2);
+};
+
+template<typename T, typename InputAlloc = std::pmr::polymorphic_allocator<void>>
 struct ICloneable {
     friend T;
-
+    
+    // TODO: confirm with Bob this is what he wants (rebind the allocator we were given to T)
+    using Alloc = typename std::allocator_traits<InputAlloc>::template rebind_alloc<T>;
     // Allocator-aware deleter using allocator_traits.
     // Templated on allocator type (A) to support rebinding between related types.
     template<typename A>
-    struct AllocDeleter {
+    struct AllocDeleter { // TODO: clean up deleter after changes from talk 250108
         using allocator_type = A;
         using alloc_traits = std::allocator_traits<A>;
 
@@ -46,50 +54,59 @@ struct ICloneable {
 private:
     // Store the allocator for default cloning. [[no_unique_address]] allows
     // stateless allocators (like std::allocator) to take zero space.
-    [[no_unique_address]] Alloc allocator_{};
+    [[no_unique_address]] Alloc allocator_{}; // TODO: store templated on T
     
     // private, default constructor
     ICloneable() = default;
-    // Constructor to set the allocator
-    explicit ICloneable(Alloc a) : allocator_(std::move(a)) {}
+    // Constructor to set the allocator. Accepts any allocator convertible to Alloc.
+    template<typename PassedAlloc>
+    requires std::convertible_to<PassedAlloc, Alloc>
+    explicit ICloneable(PassedAlloc a) : allocator_(Alloc(std::move(a))) {}
     // Copy constructor: copies allocator
     ICloneable(const ICloneable&) = default;
     // Move constructor: moves allocator
     ICloneable(ICloneable&&) = default;
+    // TODO: Discuss - extended copy/move constructors may be redundant with clone().
+    // They allow direct construction with a different allocator, but clone() already
+    // provides allocator specification. Keep if derived classes need direct construction.
+    // Extended copy: copy the object but use a different allocator
+    template<typename PassedAlloc>
+    requires std::convertible_to<PassedAlloc, Alloc>
+    explicit ICloneable(const ICloneable&, PassedAlloc a) : allocator_(Alloc(std::move(a))) {}
+    // Extended move: move the object but use a different allocator
+    template<typename PassedAlloc>
+    requires std::convertible_to<PassedAlloc, Alloc>
+    explicit ICloneable(ICloneable&&, PassedAlloc a) : allocator_(Alloc(std::move(a))) {}
     // Copy and move assignment deleted
     ICloneable& operator=(const ICloneable&) = delete;
     ICloneable& operator=(ICloneable&&) = delete;
 
 public:
 
-    // Clone using an allocator.
-    // Uses select_on_container_copy_construction for proper allocator propagation.
+    // Clone using a user-provided allocator.
+    // Accepts any allocator convertible to Alloc (rebound to T).
     // Delegates to virtual do_clone() for polymorphic construction.
     // Contract: the allocator must outlive the clone.
-    template<typename U>
+    template<typename U, typename PassedAlloc>
     requires std::is_base_of_v<T, U>
+        && std::convertible_to<PassedAlloc, Alloc>
     std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>> 
-    clone(this U const& self, Alloc alloc = Alloc{}) {
+    clone(this U const& self, PassedAlloc passed_alloc) {
         using alloc_traits = std::allocator_traits<Alloc>;
         using ReboundAlloc = typename alloc_traits::template rebind_alloc<U>;
         using ReboundDeleter = AllocDeleter<ReboundAlloc>;
 
-        // If passed a default-constructed allocator, try to use the object's stored allocator.
-        // This check is specific to polymorphic_allocator which has a resource() method.
-        if constexpr (requires { new_alloc.resource(); }) {
-            if (new_alloc.resource() == std::pmr::get_default_resource()) {
-                new_alloc = self.allocator_;
-            }
-        }
-
+        // Convert passed allocator to Alloc (rebound to T) for do_clone
+        Alloc alloc(std::move(passed_alloc));
+        
         // Delegate to virtual do_clone for polymorphic construction
-        std::unique_ptr<T, Deleter> r = self.do_clone(new_alloc);
+        std::unique_ptr<T, Deleter> r = self.do_clone(alloc);
         
         // Transfer ownership with rebound deleter
         Deleter old_deleter = r.get_deleter();
         T* obj = r.release();
         
-        // Rebind the allocator from T to U
+        // Rebind the allocator from T to U (no-op if U == T)
         ReboundAlloc rebound_alloc(old_deleter.alloc);
         
         return std::unique_ptr<U, ReboundDeleter>(
@@ -98,8 +115,31 @@ public:
         );
     }
 
-    // TODO: make a new clone() method with signature clone(this U const& self)
-    // can chain these methods together to avoid code duplication
+    // Clone using the stored allocator.
+    // If U == T, no rebinding needed. Otherwise, rebinds to U.
+    template<typename U>
+    requires std::is_base_of_v<T, U>
+    std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>> 
+    clone(this U const& self) {
+        using alloc_traits = std::allocator_traits<Alloc>;
+        using ReboundAlloc = typename alloc_traits::template rebind_alloc<U>;
+        using ReboundDeleter = AllocDeleter<ReboundAlloc>;
+
+        // Delegate to virtual do_clone using the stored allocator
+        std::unique_ptr<T, Deleter> r = self.do_clone(self.allocator_);
+        
+        // Transfer ownership with rebound deleter
+        Deleter old_deleter = r.get_deleter();
+        T* obj = r.release();
+        
+        // Rebind the allocator from T to U (no-op if U == T)
+        ReboundAlloc rebound_alloc(old_deleter.alloc);
+        
+        return std::unique_ptr<U, ReboundDeleter>(
+            static_cast<U*>(obj), 
+            ReboundDeleter(rebound_alloc)
+        );
+    }
 
 protected:
     /* TODO: Discussion point.

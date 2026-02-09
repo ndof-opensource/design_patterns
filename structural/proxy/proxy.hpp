@@ -44,6 +44,8 @@ namespace ndof {
 
     // TODO: support the ability to pass a deleter in addition to an allocator, as with (6): 
     //    https://en.cppreference.com/w/cpp/memory/shared_ptr/shared_ptr.html
+
+    // TODO: Replace std::any with void pointer and destruction logic.
     
     // Note: This is not thread safe
 
@@ -84,6 +86,8 @@ namespace ndof {
         using type = typename GenerateFunction<F::qualifiers, typename F::ReturnType, typename F::ArgTypes>::type;
     };
 
+    // TODO: add "add qualifiers" and "remove qualifiers" metafunctions.
+
     template<Callable F>
     using as_function_t = typename as_function<F>::type;
 }
@@ -98,23 +102,25 @@ namespace ndof
 
  
     // TODO: Design decision. here.  Do we want to support a polymorphic proxy that can hold any basic_proxy type?
+
+    template<typename R, bool is_noexcept, typename... A>
     struct even_more_basic_proxy {
 
     };
 
-    extern Logger get_logger();
-
-    template <Function Fn, typename Alloc>
+ 
+    // TODO: Why not use R, A... and is_noexcept directly?
+    template <typename R, typename Alloc, bool is_noexcept_v, typename... Args>
     struct basic_proxy  
     {
     private:
         // TODO: handle is_nothrow_convertible for arguments?
         // TODO: check noexcept for all methods declared here.
+        using Fn         = R(Args...) noexcept(is_noexcept);
+        using ArgTypes   = typename CallableTraits<Fn>::ArgTypes;
+        using ReturnType = typename CallableTraits<Fn>::ReturnType;
 
-        using ArgTypes = typename CallableTraits<F>::ArgTypes;
-        using ReturnType = typename CallableTraits<F>::ReturnType;
-
-        consteval static bool is_noexcept() { return QualifiedBy<Fn, Qualifier::NoExcept>; }
+        consteval static bool is_noexcept() { return is_noexcept_v; }
         consteval static bool is_void_return() { return std::is_void_v<ReturnType>; }
 
         template<typename F, typename ...A>
@@ -132,7 +138,8 @@ namespace ndof
             virtual ReturnType invoke(A&&...) noexcept(is_noexcept()) = 0;
 
             // TODO: add clone method that takes an allocator and returns a new instance of Inner with the same type.
-
+            // TODO: Add copy constructor and move constructor if the type supports them.
+            
         };
 
         // TODO: Test noexcept propagation in mismatched types.
@@ -283,6 +290,7 @@ namespace ndof
             //      but only if the allocator types are compatible. 
 
             // TODO: check for the same object.
+            //.      use std::addressof?
             if (this == &other) {
                 return;
             }

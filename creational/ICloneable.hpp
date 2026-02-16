@@ -10,7 +10,13 @@ concept is_allocator_compatible = requires (Alloc2 a2) {
     Alloc1(a2);
 };
 
-template<typename T, typename InputAlloc = std::pmr::polymorphic_allocator<void>>
+// concept to represent convertible from one alloc to another. is_rebindable
+// requires std::same_as<
+// typename std::allocator_traits<OtherAlloc>::template rebind_alloc<typename alloc_traits::value_type>,
+// A
+// >
+
+template<typename T, typename InputAlloc = std::allocator<T>>
 struct ICloneable {
     friend T;
     
@@ -37,12 +43,13 @@ struct ICloneable {
         AllocDeleter(const AllocDeleter<OtherAlloc>& other) 
             : alloc(other.alloc) {}
 
-        void operator()(ICloneable* p) const noexcept {
+        // Parameter type derived from the allocator's value_type, so no cast is needed.
+        // unique_ptr<X, AllocDeleter<AllocForX>> passes X* directly, which matches.
+        void operator()(typename alloc_traits::value_type* p) const noexcept {
             if (!p) return;
-            auto* derived = static_cast<T*>(p);
             allocator_type a = alloc;
-            alloc_traits::destroy(a, derived);
-            alloc_traits::deallocate(a, derived, 1);
+            alloc_traits::destroy(a, p);
+            alloc_traits::deallocate(a, p, 1);
         }
     };
 
@@ -54,11 +61,12 @@ struct ICloneable {
 private:
     // Store the allocator for default cloning. [[no_unique_address]] allows
     // stateless allocators (like std::allocator) to take zero space.
-    [[no_unique_address]] Alloc allocator_{}; // TODO: store templated on T
+    [[no_unique_address]] Alloc allocator_{};
     
     // private, default constructor
     ICloneable() = default;
     // Constructor to set the allocator. Accepts any allocator convertible to Alloc.
+    // TODO: Make deduction guide and remove template on PassedAlloc
     template<typename PassedAlloc>
     requires std::convertible_to<PassedAlloc, Alloc>
     explicit ICloneable(PassedAlloc a) : allocator_(Alloc(std::move(a))) {}
@@ -66,17 +74,6 @@ private:
     ICloneable(const ICloneable&) = default;
     // Move constructor: moves allocator
     ICloneable(ICloneable&&) = default;
-    // TODO: Discuss - extended copy/move constructors may be redundant with clone().
-    // They allow direct construction with a different allocator, but clone() already
-    // provides allocator specification. Keep if derived classes need direct construction.
-    // Extended copy: copy the object but use a different allocator
-    template<typename PassedAlloc>
-    requires std::convertible_to<PassedAlloc, Alloc>
-    explicit ICloneable(const ICloneable&, PassedAlloc a) : allocator_(Alloc(std::move(a))) {}
-    // Extended move: move the object but use a different allocator
-    template<typename PassedAlloc>
-    requires std::convertible_to<PassedAlloc, Alloc>
-    explicit ICloneable(ICloneable&&, PassedAlloc a) : allocator_(Alloc(std::move(a))) {}
     // Copy and move assignment deleted
     ICloneable& operator=(const ICloneable&) = delete;
     ICloneable& operator=(ICloneable&&) = delete;
@@ -87,8 +84,9 @@ public:
     // Accepts any allocator convertible to Alloc (rebound to T).
     // Delegates to virtual do_clone() for polymorphic construction.
     // Contract: the allocator must outlive the clone.
+    // T, the type of the object held, must be derived from U, the type of the object to be returned.
     template<typename U, typename PassedAlloc>
-    requires std::is_base_of_v<T, U>
+    requires std::is_base_of_v<U, T>
         && std::convertible_to<PassedAlloc, Alloc>
     std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>> 
     clone(this U const& self, PassedAlloc passed_alloc) {
@@ -110,15 +108,16 @@ public:
         ReboundAlloc rebound_alloc(old_deleter.alloc);
         
         return std::unique_ptr<U, ReboundDeleter>(
-            static_cast<U*>(obj), 
+            obj,
             ReboundDeleter(rebound_alloc)
         );
     }
 
     // Clone using the stored allocator.
     // If U == T, no rebinding needed. Otherwise, rebinds to U.
+    // T, the type of the object held, must be derived from U, the type of the object to be returned.
     template<typename U>
-    requires std::is_base_of_v<T, U>
+    requires std::is_base_of_v<U, T>
     std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>> 
     clone(this U const& self) {
         using alloc_traits = std::allocator_traits<Alloc>;
@@ -136,40 +135,20 @@ public:
         ReboundAlloc rebound_alloc(old_deleter.alloc);
         
         return std::unique_ptr<U, ReboundDeleter>(
-            static_cast<U*>(obj), 
+            obj, 
             ReboundDeleter(rebound_alloc)
         );
     }
 
 protected:
-    /* TODO: Discussion point.
-    *  This relies on each derived class properly overriding do_clone() to construct its 
-    *  actual type. If a class in the middle of the hierarchy doesn't override it, the 
-    *  downcast from T* to U* could be unsafe (e.g., if Poodle inherits from Dog but only 
-    *  Dog::do_clone() exists, it would construct a Dog but cast to Poodle*).
-    * 
-    *  We could enforce this in one of at least two ways:
-    *  1. Runtime check in clone() using dynamic_cast.
-    *  2. Make do_clone() pure virtual and provide a helper so derived classes must override.
-    *
-    *  Example override in derived class Dog:
-    *    std::unique_ptr<Animal, Deleter> do_clone(Alloc alloc) const override {
-    *        using DogAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Dog>;
-    *        using dog_traits = std::allocator_traits<DogAlloc>;
-    *        DogAlloc dog_alloc(alloc);
-    *        Dog* ptr = dog_traits::allocate(dog_alloc, 1);
-    *        dog_traits::construct(dog_alloc, ptr, *this);
-    *        return std::unique_ptr<Animal, Deleter>(ptr, Deleter(dog_alloc));
-    *    }
-    */
+    // TODO: Need to be consistent with noexcept policy across all code
+    // Requires formalizing that policy
     virtual std::unique_ptr<T, Deleter> do_clone(Alloc alloc) const {
         using alloc_traits = std::allocator_traits<Alloc>;
 
-        auto const& self = static_cast<T const&>(*this);
-        
         T* ptr = alloc_traits::allocate(alloc, 1);
         try {
-            alloc_traits::construct(alloc, ptr, self);
+            alloc_traits::construct(alloc, ptr, *this);
             return std::unique_ptr<T, Deleter>(ptr, Deleter(alloc));
         } catch (...) {
             alloc_traits::deallocate(alloc, ptr, 1);

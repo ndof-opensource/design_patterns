@@ -3,6 +3,9 @@
 #include <memory>
 #include <type_traits>
 #include <concepts>
+#include <expected>
+#include <cstdint>
+#include <new>
 
 // TODO: we use std::convertible_to in constructor requires clause. Can we delete this concept?
 template<typename Alloc1, typename Alloc2>
@@ -15,6 +18,11 @@ concept is_allocator_compatible = requires (Alloc2 a2) {
 // typename std::allocator_traits<OtherAlloc>::template rebind_alloc<typename alloc_traits::value_type>,
 // A
 // >
+
+enum class CloneError : std::uint8_t {
+    AllocationFailed,
+    ConstructionFailed,
+};
 
 template<typename T, typename InputAlloc = std::allocator<T>>
 struct ICloneable {
@@ -88,7 +96,7 @@ public:
     template<typename U, typename PassedAlloc>
     requires std::is_base_of_v<U, T>
         && std::convertible_to<PassedAlloc, Alloc>
-    std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>> 
+    [[nodiscard]] std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>> 
     clone(this U const& self, PassedAlloc passed_alloc) {
         using alloc_traits = std::allocator_traits<Alloc>;
         using ReboundAlloc = typename alloc_traits::template rebind_alloc<U>;
@@ -113,12 +121,33 @@ public:
         );
     }
 
+    // noexcept variant: wraps the throwing clone, converting exceptions
+    // to CloneError. Derived classes that override do_clone (throwing)
+    // automatically get this noexcept path for free.
+    template<typename U, typename PassedAlloc>
+    requires std::is_base_of_v<U, T>
+        && std::convertible_to<PassedAlloc, Alloc>
+    [[nodiscard]] auto
+    clone(this U const& self, PassedAlloc passed_alloc, std::nothrow_t) noexcept
+        -> std::expected<
+            std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>>,
+            CloneError>
+    {
+        try {
+            return self.clone(std::move(passed_alloc));
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(CloneError::AllocationFailed);
+        } catch (...) {
+            return std::unexpected(CloneError::ConstructionFailed);
+        }
+    }
+
     // Clone using the stored allocator.
     // If U == T, no rebinding needed. Otherwise, rebinds to U.
     // T, the type of the object held, must be derived from U, the type of the object to be returned.
     template<typename U>
     requires std::is_base_of_v<U, T>
-    std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>> 
+    [[nodiscard]] std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>> 
     clone(this U const& self) {
         using alloc_traits = std::allocator_traits<Alloc>;
         using ReboundAlloc = typename alloc_traits::template rebind_alloc<U>;
@@ -140,10 +169,28 @@ public:
         );
     }
 
+    // noexcept variant: wraps the throwing clone (stored-allocator version).
+    template<typename U>
+    requires std::is_base_of_v<U, T>
+    [[nodiscard]] auto
+    clone(this U const& self, std::nothrow_t) noexcept
+        -> std::expected<
+            std::unique_ptr<U, AllocDeleter<typename std::allocator_traits<Alloc>::template rebind_alloc<U>>>,
+            CloneError>
+    {
+        try {
+            return self.clone();
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(CloneError::AllocationFailed);
+        } catch (...) {
+            return std::unexpected(CloneError::ConstructionFailed);
+        }
+    }
+
 protected:
-    // TODO: Need to be consistent with noexcept policy across all code
-    // Requires formalizing that policy
-    virtual std::unique_ptr<T, Deleter> do_clone(Alloc alloc) const {
+    // Throwing variant: allocates and copy-constructs via allocator_traits.
+    // Override in derived classes for custom polymorphic construction.
+    [[nodiscard]] virtual std::unique_ptr<T, Deleter> do_clone(Alloc alloc) const {
         using alloc_traits = std::allocator_traits<Alloc>;
 
         T* ptr = alloc_traits::allocate(alloc, 1);
@@ -153,6 +200,22 @@ protected:
         } catch (...) {
             alloc_traits::deallocate(alloc, ptr, 1);
             throw;
+        }
+    }
+
+    // noexcept variant: delegates to the throwing do_clone, catches and
+    // converts exceptions to CloneError. Derived classes may override to
+    // provide a more efficient non-throwing implementation.
+    [[nodiscard]] virtual auto
+    do_clone(Alloc alloc, std::nothrow_t) const noexcept
+        -> std::expected<std::unique_ptr<T, Deleter>, CloneError>
+    {
+        try {
+            return do_clone(std::move(alloc));
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(CloneError::AllocationFailed);
+        } catch (...) {
+            return std::unexpected(CloneError::ConstructionFailed);
         }
     }
 };

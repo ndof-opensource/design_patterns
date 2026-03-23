@@ -9,3 +9,4 @@ Design Principles
 6.) All functions should have noexcept versions that return std::expected when warranted.<br>
 7.) Verbosity is ok.<br>
 8.) Mark methods [[nodiscard]] where applicable.<br>
+9.) Apply NASA code rules and alternative, less-constrained configurations for strictest rules.

@@ -6,6 +6,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
  
 # only build and execute the tests if the build type is TEST
 
-add_subdirectory(proxy)
+# TODO: build the library.
+
+# TODO: build and execute the tests, as configured.
+add_subdirectory(tests)
 
 

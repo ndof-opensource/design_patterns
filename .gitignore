@@ -37,5 +37,11 @@
 # Mac files
 .DS_Store
 
+# VS Code files
+.vscode/*
+
 # Compile Commands
 compile_commands.json
+
+# Cache files
+**/.cache/*

@@ -67,6 +67,10 @@ struct ICloneable {
     virtual ~ICloneable() = default;
 
 private:
+    [[nodiscard]] T const& self_as_derived() const noexcept {
+        return static_cast<T const&>(*this);
+    }
+
     // Store the allocator for default cloning. [[no_unique_address]] allows
     // stateless allocators (like std::allocator) to take zero space.
     [[no_unique_address]] Alloc allocator_{};
@@ -195,7 +199,7 @@ protected:
 
         T* ptr = alloc_traits::allocate(alloc, 1);
         try {
-            alloc_traits::construct(alloc, ptr, *this);
+            alloc_traits::construct(alloc, ptr, self_as_derived());
             return std::unique_ptr<T, Deleter>(ptr, Deleter(alloc));
         } catch (...) {
             alloc_traits::deallocate(alloc, ptr, 1);

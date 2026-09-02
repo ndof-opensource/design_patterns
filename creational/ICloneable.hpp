@@ -1,5 +1,4 @@
 #include <print>
-#include <memory_resource>
 #include <memory>
 #include <type_traits>
 #include <concepts>

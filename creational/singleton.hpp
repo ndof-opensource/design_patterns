@@ -28,7 +28,10 @@ concept CopyConstructible = requires (T t){
 // An allocator-aware type also defines an alias for allocator_type.
 
 // As with std::vector and other containers.
+
+// TODO: Replace all of this with the allocator traits approach.
 template<typename T, typename Alloc, typename ...Args>
+// TODO: This is an error.  It should check for the existence of the allocator tag first.
 concept HasTaggedAllocatorConstructor = requires (Alloc alloc, Args ...args) {
     T(std::allocator_arg, alloc, args...);
 };
